@@ -28,3 +28,9 @@ custom_downloads/
 .ipynb_checkpoints/
 *.ipynb
 .DS_Store
+
+# Test artifacts
+.coverage
+coverage.xml
+htmlcov/
+.pytest_cache/
