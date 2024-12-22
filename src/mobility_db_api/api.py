@@ -32,18 +32,37 @@ class DatasetMetadata:
     feed_end_date: Optional[str] = None
 
 class MobilityAPI:
-    """Class to interact with the Mobility Database API"""
+    """A client for interacting with the Mobility Database API.
+
+    This class provides methods to search for GTFS providers, download datasets,
+    and manage downloaded data. It handles authentication, caching, and metadata
+    tracking automatically.
+
+    Attributes:
+        data_dir (Path): Directory where downloaded datasets are stored
+        refresh_token (str): Token used for API authentication
+        datasets (Dict): Dictionary of downloaded dataset metadata
+
+    Example:
+        >>> api = MobilityAPI()
+        >>> providers = api.get_providers_by_country("HU")
+        >>> dataset_path = api.download_latest_dataset("tld-5862")
+    """
     
-    def __init__(self, data_dir: str = "data", refresh_token: Optional[str] = None):
-        """
-        Initialize the API client.
-        
+    def __init__(self, data_dir: Optional[str] = None, refresh_token: Optional[str] = None):
+        """Initialize the MobilityAPI client.
+
         Args:
-            data_dir: Base directory for all GTFS downloads
-            refresh_token: Optional refresh token. If not provided, will try to load from .env file
+            data_dir: Optional directory path where datasets will be stored.
+                     Defaults to './mobility_datasets'.
+            refresh_token: Optional API refresh token. If not provided, will be read
+                         from MOBILITY_API_REFRESH_TOKEN environment variable.
+
+        Raises:
+            ValueError: If no refresh token is provided and none is found in environment.
         """
         self.base_url = "https://api.mobilitydatabase.org/v1"
-        self.data_dir = Path(data_dir)
+        self.data_dir = Path(data_dir) if data_dir else Path("./mobility_datasets")
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.metadata_file = self.data_dir / "datasets_metadata.json"
         self.refresh_token = refresh_token
@@ -110,7 +129,20 @@ class MobilityAPI:
             json.dump(data, f, indent=2)
 
     def get_access_token(self) -> Optional[str]:
-        """Get a new access token using the refresh token"""
+        """Get a valid access token for API authentication.
+
+        This method handles token refresh automatically when needed. It uses the
+        refresh token to obtain a new access token from the API.
+
+        Returns:
+            A valid access token string if successful, None if token refresh fails.
+
+        Example:
+            >>> api = MobilityAPI()
+            >>> token = api.get_access_token()
+            >>> print(token)
+            'eyJ0eXAiOiJKV1QiLCJhbGc...'
+        """
         if not self.refresh_token:
             self.refresh_token = os.getenv("MOBILITY_API_REFRESH_TOKEN")
         if not self.refresh_token:
@@ -138,7 +170,26 @@ class MobilityAPI:
         return {"Authorization": f"Bearer {token}"}
 
     def get_providers_by_country(self, country_code: str) -> List[Dict]:
-        """Get all providers from a specific country"""
+        """Search for GTFS providers by country code.
+
+        Args:
+            country_code: Two-letter ISO country code (e.g., "HU" for Hungary)
+
+        Returns:
+            List of provider dictionaries containing provider information.
+            Each dictionary includes:
+                - id: Provider's unique identifier
+                - provider: Provider's name
+                - country: Provider's country
+                - source_info: Information about data sources
+
+        Example:
+            >>> api = MobilityAPI()
+            >>> providers = api.get_providers_by_country("HU")
+            >>> for p in providers:
+            ...     print(f"{p['provider']}: {p['id']}")
+            'BKK: o-u-dr_bkk'
+        """
         url = f"{self.base_url}/gtfs_feeds"
         params = {"country_code": country_code.upper()}
         
@@ -151,7 +202,28 @@ class MobilityAPI:
             return []
 
     def get_providers_by_name(self, name: str) -> List[Dict]:
-        """Get providers matching a name (case-insensitive partial match)"""
+        """Search for GTFS providers by name.
+
+        The search is case-insensitive and matches partial names.
+
+        Args:
+            name: Provider name or part of the name to search for
+
+        Returns:
+            List of provider dictionaries containing provider information.
+            Each dictionary includes:
+                - id: Provider's unique identifier
+                - provider: Provider's name
+                - country: Provider's country
+                - source_info: Information about data sources
+
+        Example:
+            >>> api = MobilityAPI()
+            >>> providers = api.get_providers_by_name("BKK")
+            >>> for p in providers:
+            ...     print(f"{p['provider']}: {p['id']}")
+            'BKK: o-u-dr_bkk'
+        """
         url = f"{self.base_url}/gtfs_feeds"
         params = {"provider": name}
         
@@ -216,16 +288,27 @@ class MobilityAPI:
         return name
 
     def download_latest_dataset(self, provider_id: str, download_dir: Optional[str] = None, use_direct_source: bool = False) -> Optional[Path]:
-        """
-        Download and extract the latest dataset for a provider.
-        
+        """Download the latest GTFS dataset from a provider.
+
+        This method handles both hosted and direct source downloads. It includes
+        progress tracking, metadata collection, and automatic extraction of
+        downloaded datasets.
+
         Args:
-            provider_id: The ID of the provider
-            download_dir: Optional specific directory for this download. If not provided, uses the base data_dir
-            use_direct_source: If True, use the provider's direct URL instead of the hosted one
-        
+            provider_id: The unique identifier of the provider
+            download_dir: Optional custom directory to store the dataset
+            use_direct_source: Whether to use direct download URL instead of
+                             hosted dataset. Defaults to False.
+
         Returns:
-            Path to the extracted dataset directory if successful, None otherwise
+            Path to the extracted dataset directory if successful, None if download fails.
+            The directory contains the extracted GTFS files (txt files).
+
+        Example:
+            >>> api = MobilityAPI()
+            >>> dataset_path = api.download_latest_dataset("tld-5862")
+            >>> print(dataset_path)
+            PosixPath('mobility_datasets/volanbus_20240315')
         """
         try:
             # Get provider info
@@ -364,25 +447,56 @@ class MobilityAPI:
             return None
 
     def list_downloaded_datasets(self) -> List[DatasetMetadata]:
-        """
-        Get a list of all downloaded datasets in the data directory.
-        
+        """Get a list of all downloaded datasets in the data directory.
+
         Returns:
-            List of DatasetMetadata objects for all downloaded datasets
+            List of DatasetMetadata objects for all downloaded datasets.
+            Each object contains:
+                - provider_id: Provider's unique identifier
+                - provider_name: Provider's name
+                - dataset_id: Dataset's unique identifier
+                - download_date: When the dataset was downloaded
+                - source_url: URL the dataset was downloaded from
+                - is_direct_source: Whether it was a direct download
+                - api_provided_hash: Hash provided by the API (if any)
+                - file_hash: Actual hash of the downloaded file
+                - download_path: Path to the extracted dataset
+                - feed_start_date: Start date of feed validity
+                - feed_end_date: End date of feed validity
+
+        Example:
+            >>> api = MobilityAPI()
+            >>> datasets = api.list_downloaded_datasets()
+            >>> for ds in datasets:
+            ...     print(f"{ds.provider_name}: {ds.download_date}")
+            'Volánbusz: 2024-03-15 10:30:45'
         """
         return [meta for meta in self.datasets.values() 
                 if meta.download_path.exists()]
 
     def delete_dataset(self, provider_id: str, dataset_id: Optional[str] = None) -> bool:
-        """
-        Delete a downloaded dataset.
-        
+        """Delete a downloaded dataset.
+
+        If no specific dataset_id is provided, deletes the latest dataset
+        from the specified provider.
+
         Args:
-            provider_id: The ID of the provider
-            dataset_id: Optional specific dataset ID. If not provided, deletes the latest dataset
-        
+            provider_id: The unique identifier of the provider
+            dataset_id: Optional specific dataset ID. If not provided,
+                       deletes the latest dataset
+
         Returns:
-            True if the dataset was deleted, False if it wasn't found or couldn't be deleted
+            True if the dataset was deleted, False if it wasn't found
+            or couldn't be deleted
+
+        Example:
+            >>> api = MobilityAPI()
+            >>> # Delete latest dataset from Volánbusz
+            >>> api.delete_dataset("tld-5862")
+            True
+            >>> # Delete specific dataset
+            >>> api.delete_dataset("tld-5862", "specific_dataset_id")
+            True
         """
         # Find matching datasets
         matches = [
