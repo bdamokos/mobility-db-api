@@ -11,6 +11,7 @@ from datetime import datetime
 import zipfile
 from unidecode import unidecode
 from dotenv import load_dotenv
+import shutil
 
 # Load environment variables
 load_dotenv()
@@ -361,6 +362,59 @@ class MobilityAPI:
         except (zipfile.BadZipFile, OSError) as e:
             print(f"Error processing dataset: {str(e)}")
             return None
+
+    def list_downloaded_datasets(self) -> List[DatasetMetadata]:
+        """
+        Get a list of all downloaded datasets in the data directory.
+        
+        Returns:
+            List of DatasetMetadata objects for all downloaded datasets
+        """
+        return [meta for meta in self.datasets.values() 
+                if meta.download_path.exists()]
+
+    def delete_dataset(self, provider_id: str, dataset_id: Optional[str] = None) -> bool:
+        """
+        Delete a downloaded dataset.
+        
+        Args:
+            provider_id: The ID of the provider
+            dataset_id: Optional specific dataset ID. If not provided, deletes the latest dataset
+        
+        Returns:
+            True if the dataset was deleted, False if it wasn't found or couldn't be deleted
+        """
+        # Find matching datasets
+        matches = [
+            (key, meta) for key, meta in self.datasets.items()
+            if meta.provider_id == provider_id and
+            (dataset_id is None or meta.dataset_id == dataset_id)
+        ]
+        
+        if not matches:
+            print(f"No matching dataset found for provider {provider_id}")
+            return False
+        
+        # If dataset_id not specified, take the latest one
+        if dataset_id is None and len(matches) > 1:
+            matches.sort(key=lambda x: x[1].download_date, reverse=True)
+        
+        key, meta = matches[0]
+        
+        try:
+            if meta.download_path.exists():
+                shutil.rmtree(meta.download_path)
+                print(f"Deleted dataset directory: {meta.download_path}")
+            
+            # Remove from metadata
+            del self.datasets[key]
+            self._save_metadata()
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error deleting dataset: {str(e)}")
+            return False
 
 if __name__ == "__main__":
     try:
