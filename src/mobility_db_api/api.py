@@ -12,6 +12,7 @@ import zipfile
 from unidecode import unidecode
 from dotenv import load_dotenv
 import shutil
+from .logger import setup_logger
 
 # Load environment variables
 load_dotenv()
@@ -32,22 +33,46 @@ class DatasetMetadata:
     feed_end_date: Optional[str] = None
 
 class MobilityAPI:
-    """Class to interact with the Mobility Database API"""
+    """A client for interacting with the Mobility Database API.
+
+    This class provides methods to search for GTFS providers, download datasets,
+    and manage downloaded data. It handles authentication, caching, and metadata
+    tracking automatically.
+
+    Attributes:
+        data_dir (Path): Directory where downloaded datasets are stored
+        refresh_token (str): Token used for API authentication
+        datasets (Dict): Dictionary of downloaded dataset metadata
+
+    Example:
+        >>> api = MobilityAPI()
+        >>> providers = api.get_providers_by_country("HU")
+        >>> dataset_path = api.download_latest_dataset("tld-5862")
+    """
     
-    def __init__(self, data_dir: str = "data", refresh_token: Optional[str] = None):
+    def __init__(self, data_dir: str = "data", refresh_token: Optional[str] = None,
+                 log_level: str = "INFO", logger_name: str = "mobility_db_api"):
         """
         Initialize the API client.
         
         Args:
             data_dir: Base directory for all GTFS downloads
             refresh_token: Optional refresh token. If not provided, will try to load from .env file
+            log_level: Logging level (DEBUG, INFO, WARNING, ERROR). Defaults to INFO.
+            logger_name: Name for the logger instance. Defaults to 'mobility_db_api'.
         """
+        # Set up logger
+        self.logger = setup_logger(name=logger_name, level=log_level)
+        self.logger.debug("Initializing MobilityAPI client")
+
         self.base_url = "https://api.mobilitydatabase.org/v1"
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.metadata_file = self.data_dir / "datasets_metadata.json"
         self.refresh_token = refresh_token
         self._load_metadata()
+        
+        self.logger.info(f"Initialized client with data directory: {self.data_dir}")
 
     def _get_metadata_file(self, base_dir: Optional[Path] = None) -> Path:
         """Get the appropriate metadata file path based on the base directory"""
@@ -110,7 +135,20 @@ class MobilityAPI:
             json.dump(data, f, indent=2)
 
     def get_access_token(self) -> Optional[str]:
-        """Get a new access token using the refresh token"""
+        """Get a valid access token for API authentication.
+
+        This method handles token refresh automatically when needed. It uses the
+        refresh token to obtain a new access token from the API.
+
+        Returns:
+            A valid access token string if successful, None if token refresh fails.
+
+        Example:
+            >>> api = MobilityAPI()
+            >>> token = api.get_access_token()
+            >>> print(token)
+            'eyJ0eXAiOiJKV1QiLCJhbGc...'
+        """
         if not self.refresh_token:
             self.refresh_token = os.getenv("MOBILITY_API_REFRESH_TOKEN")
         if not self.refresh_token:
@@ -127,7 +165,7 @@ class MobilityAPI:
                 return data.get("access_token")
             return None
         except Exception as e:
-            print(f"Exception during token request: {str(e)}")
+            self.logger.error(f"Exception during token request: {str(e)}")
             return None
 
     def _get_headers(self) -> Dict[str, str]:
@@ -138,7 +176,26 @@ class MobilityAPI:
         return {"Authorization": f"Bearer {token}"}
 
     def get_providers_by_country(self, country_code: str) -> List[Dict]:
-        """Get all providers from a specific country"""
+        """Search for GTFS providers by country code.
+
+        Args:
+            country_code: Two-letter ISO country code (e.g., "HU" for Hungary)
+
+        Returns:
+            List of provider dictionaries containing provider information.
+            Each dictionary includes:
+                - id: Provider's unique identifier
+                - provider: Provider's name
+                - country: Provider's country
+                - source_info: Information about data sources
+
+        Example:
+            >>> api = MobilityAPI()
+            >>> providers = api.get_providers_by_country("HU")
+            >>> for p in providers:
+            ...     print(f"{p['provider']}: {p['id']}")
+            'BKK: o-u-dr_bkk'
+        """
         url = f"{self.base_url}/gtfs_feeds"
         params = {"country_code": country_code.upper()}
         
@@ -216,24 +273,35 @@ class MobilityAPI:
         return name
 
     def download_latest_dataset(self, provider_id: str, download_dir: Optional[str] = None, use_direct_source: bool = False) -> Optional[Path]:
-        """
-        Download and extract the latest dataset for a provider.
-        
+        """Download the latest GTFS dataset from a provider.
+
+        This method handles both hosted and direct source downloads. It includes
+        progress tracking, metadata collection, and automatic extraction of
+        downloaded datasets.
+
         Args:
-            provider_id: The ID of the provider
-            download_dir: Optional specific directory for this download. If not provided, uses the base data_dir
-            use_direct_source: If True, use the provider's direct URL instead of the hosted one
-        
+            provider_id: The unique identifier of the provider
+            download_dir: Optional custom directory to store the dataset
+            use_direct_source: Whether to use direct download URL instead of
+                             hosted dataset. Defaults to False.
+
         Returns:
-            Path to the extracted dataset directory if successful, None otherwise
+            Path to the extracted dataset directory if successful, None if download fails.
+            The directory contains the extracted GTFS files (txt files).
+
+        Example:
+            >>> api = MobilityAPI()
+            >>> dataset_path = api.download_latest_dataset("tld-5862")
+            >>> print(dataset_path)
+            PosixPath('mobility_datasets/volanbus_20240315')
         """
         try:
             # Get provider info
-            print(f"\nFetching provider info for {provider_id}...")
+            self.logger.info(f"Fetching provider info for {provider_id}")
             url = f"{self.base_url}/gtfs_feeds/{provider_id}"
             response = requests.get(url, headers=self._get_headers())
             if response.status_code != 200:
-                print(f"Failed to get provider info: {response.status_code}")
+                self.logger.error(f"Failed to get provider info: {response.status_code}")
                 return None
             
             provider_data = response.json()
@@ -243,7 +311,7 @@ class MobilityAPI:
             # For direct source, we don't need latest_dataset
             if use_direct_source:
                 if not provider_data.get('source_info', {}).get('producer_url'):
-                    print("No direct download URL available for this provider")
+                    self.logger.error("No direct download URL available for this provider")
                     return None
                 download_url = provider_data['source_info']['producer_url']
                 api_hash = None
@@ -254,7 +322,7 @@ class MobilityAPI:
                 }
             else:
                 if not latest_dataset:
-                    print(f"No latest dataset available for provider {provider_id}")
+                    self.logger.error(f"No latest dataset available for provider {provider_id}")
                     return None
                 download_url = latest_dataset['hosted_url']
                 api_hash = latest_dataset.get('hash')
@@ -273,11 +341,11 @@ class MobilityAPI:
                 existing = self.datasets[dataset_key]
                 if existing.is_direct_source == is_direct:
                     if api_hash and api_hash == existing.api_provided_hash:
-                        print(f"Dataset {dataset_key} already exists and hash matches")
+                        self.logger.info(f"Dataset {dataset_key} already exists and hash matches")
                         return existing.download_path
                     elif not api_hash and existing.download_path.exists():
                         # For direct source, download and compare file hash
-                        print("Checking if direct source dataset has changed...")
+                        self.logger.info("Checking if direct source dataset has changed...")
                         temp_file = provider_dir / f"temp_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
                         start_time = time.time()
                         response = requests.get(download_url)
@@ -288,19 +356,19 @@ class MobilityAPI:
                             new_hash = self._calculate_file_hash(temp_file)
                             if new_hash == existing.file_hash:
                                 temp_file.unlink()
-                                print(f"Dataset {dataset_key} already exists and content matches")
+                                self.logger.info(f"Dataset {dataset_key} already exists and content matches")
                                 return existing.download_path
                             # If hash different, continue with new download
                             temp_file.unlink()
             
             # Download dataset
-            print(f"\nDownloading dataset from {download_url}...")
+            self.logger.info(f"Downloading dataset from {download_url}")
             start_time = time.time()
             response = requests.get(download_url)
             download_time = time.time() - start_time
             
             if response.status_code != 200:
-                print(f"Failed to download dataset: {response.status_code}")
+                self.logger.error(f"Failed to download dataset: {response.status_code}")
                 return None
             
             # Save and process the zip file
@@ -309,14 +377,14 @@ class MobilityAPI:
                 f.write(response.content)
             
             zip_size = zip_file.stat().st_size
-            print(f"Download completed in {download_time:.2f} seconds")
-            print(f"Downloaded file size: {zip_size / 1024 / 1024:.2f} MB")
+            self.logger.info(f"Download completed in {download_time:.2f} seconds")
+            self.logger.info(f"Downloaded file size: {zip_size / 1024 / 1024:.2f} MB")
             
             # Calculate file hash
             file_hash = self._calculate_file_hash(zip_file)
             
             # Extract dataset
-            print("\nExtracting dataset...")
+            self.logger.info("Extracting dataset...")
             extract_dir = provider_dir / latest_dataset['id']
             start_time = time.time()
             with zipfile.ZipFile(zip_file, 'r') as zip_ref:
@@ -324,16 +392,16 @@ class MobilityAPI:
             extract_time = time.time() - start_time
             
             extracted_size = self._get_directory_size(extract_dir)
-            print(f"Extraction completed in {extract_time:.2f} seconds")
-            print(f"Extracted size: {extracted_size / 1024 / 1024:.2f} MB")
+            self.logger.info(f"Extraction completed in {extract_time:.2f} seconds")
+            self.logger.info(f"Extracted size: {extracted_size / 1024 / 1024:.2f} MB")
             
             # Get feed dates from feed_info.txt
             feed_start_date, feed_end_date = self._get_feed_dates(extract_dir)
             if feed_start_date and feed_end_date:
-                print(f"Feed validity period: {feed_start_date} to {feed_end_date}")
+                self.logger.info(f"Feed validity period: {feed_start_date} to {feed_end_date}")
             
             # Clean up zip file
-            print("Cleaning up downloaded zip file...")
+            self.logger.info("Cleaning up downloaded zip file...")
             zip_file.unlink()
             
             # Save metadata
@@ -357,10 +425,10 @@ class MobilityAPI:
             
             return extract_dir
         except requests.exceptions.RequestException as e:
-            print(f"Network error during download: {str(e)}")
+            self.logger.error(f"Network error during download: {str(e)}")
             return None
         except (zipfile.BadZipFile, OSError) as e:
-            print(f"Error processing dataset: {str(e)}")
+            self.logger.error(f"Error processing dataset: {str(e)}")
             return None
 
     def list_downloaded_datasets(self) -> List[DatasetMetadata]:
@@ -392,7 +460,7 @@ class MobilityAPI:
         ]
         
         if not matches:
-            print(f"No matching dataset found for provider {provider_id}")
+            self.logger.error(f"No matching dataset found for provider {provider_id}")
             return False
         
         # If dataset_id not specified, take the latest one
@@ -404,7 +472,7 @@ class MobilityAPI:
         try:
             if meta.download_path.exists():
                 shutil.rmtree(meta.download_path)
-                print(f"Deleted dataset directory: {meta.download_path}")
+                self.logger.info(f"Deleted dataset directory: {meta.download_path}")
             
             # Remove from metadata
             del self.datasets[key]
@@ -413,7 +481,7 @@ class MobilityAPI:
             return True
             
         except Exception as e:
-            print(f"Error deleting dataset: {str(e)}")
+            self.logger.error(f"Error deleting dataset: {str(e)}")
             return False
 
 if __name__ == "__main__":
