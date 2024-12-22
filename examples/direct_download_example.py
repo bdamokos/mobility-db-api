@@ -1,4 +1,4 @@
-from mobility_api import MobilityAPI
+from mobility_db_api import MobilityAPI
 from pathlib import Path
 import json
 import shutil

@@ -1,7 +1,30 @@
+# Build artifacts
+dist/
+build/
+*.egg-info/
+__pycache__/
+*.py[cod]
+
+# Virtual environments
 .env
+.venv/
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Project specific
 data/
-custom_downloads/
-.venv
-.git
+downloads/
 test_downloads/
-test_downloads_direct
+test_downloads_direct/
+custom_downloads/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+.DS_Store

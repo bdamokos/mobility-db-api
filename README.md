@@ -2,47 +2,40 @@
 
 This project provides tools to interact with the [Mobility Database API](https://mobilitydatabase.org) and explore GTFS data from various transit providers. The Mobility Database is a comprehensive repository of public transportation data from around the world, providing standardized GTFS feeds for transit agencies.
 
-## Prerequisites
+## Installation
 
-- Python 3.7 or higher
-- A Mobility Database account and refresh token (see below)
+You can install this package in several ways:
+
+1. From PyPI (recommended):
+```bash
+pip install mobility-db-api
+```
+
+2. From GitHub:
+```bash
+pip install git+https://github.com/bdamokos/mobility-db-api.git
+```
+
+3. For development:
+```bash
+git clone https://github.com/bdamokos/mobility-db-api.git
+cd mobility-db-api
+pip install -e .
+```
 
 ## Authentication
 
 1. Register for an account at [mobilitydatabase.org](https://mobilitydatabase.org)
-2. After registration, you can obtain your refresh token from your account settings
-3. Store your refresh token in the `.env` file (see Configuration below)
-
-## Setup
-
-1. Create and activate a Python virtual environment:
-```bash
-python -m venv .venv
-source .venv/bin/activate  # On Unix/macOS
-# or
-.venv\Scripts\activate  # On Windows
+2. After registration, obtain your refresh token from your account settings
+3. Store your refresh token in a `.env` file:
 ```
-
-2. Install dependencies:
-```bash
-pip install -r requirements.txt
+MOBILITY_API_REFRESH_TOKEN=your_refresh_token_here
 ```
-
-3. Configure your API token:
-   - Create a `.env` file in the project root
-   - Add your refresh token:
-     ```
-     MOBILITY_API_REFRESH_TOKEN=your_refresh_token_here
-     ```
 
 ## Usage
 
-### API Client
-
-The `MobilityAPI` class provides several methods to interact with the API:
-
 ```python
-from mobility_api import MobilityAPI
+from mobility_db_api import MobilityAPI
 
 # Initialize with default settings
 api = MobilityAPI()
@@ -62,8 +55,6 @@ dataset_path = api.download_latest_dataset(provider_id="tld-5862")
 # Download using direct URL (if available)
 dataset_path = api.download_latest_dataset(provider_id="tld-5862", use_direct_source=True)
 ```
-
-
 
 ## Features
 
