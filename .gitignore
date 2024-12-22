@@ -1,0 +1,7 @@
+.env
+data/
+custom_downloads/
+.venv
+.git
+test_downloads/
+test_downloads_direct
