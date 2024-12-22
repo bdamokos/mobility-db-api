@@ -36,3 +36,5 @@ custom_test_downloads/
 coverage.xml
 htmlcov/
 .pytest_cache/
+
+dev/
