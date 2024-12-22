@@ -5,7 +5,7 @@
 [![codecov](https://codecov.io/gh/bdamokos/mobility-db-api/branch/main/graph/badge.svg)](https://codecov.io/gh/bdamokos/mobility-db-api)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A Python client for downloading GTFS files through the Mobility Database API.
+A Python client for downloading GTFS files through the [Mobility Database](https://database.mobilitydata.org/) API.
 
 ## Installation
 
