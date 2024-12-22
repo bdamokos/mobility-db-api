@@ -26,11 +26,15 @@ dependencies = [
 
 [project.urls]
 "Homepage" = "https://github.com/bdamokos/mobility-db-api"
-"Bug Tracker" = "https://github.com/bdamokos/mobility-db-api/issues" 
+"Bug Tracker" = "https://github.com/bdamokos/mobility-db-api/issues"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
 packages = ["mobility_db_api"]
+
+# Explicitly exclude tests and examples from the package
+[tool.setuptools.exclude-package-data]
+"*" = ["tests/*", "examples/*"]
 
 [project.optional-dependencies]
 dev = [

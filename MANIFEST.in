@@ -1,0 +1,10 @@
+include LICENSE
+include README.md
+include pyproject.toml
+
+# Include the package source
+recursive-include src/mobility_db_api *.py
+
+# Exclude tests and examples
+prune tests
+prune examples 
