@@ -141,10 +141,13 @@ class MobilityAPI:
         url = f"{self.base_url}/gtfs_feeds"
         params = {"country_code": country_code.upper()}
         
-        response = requests.get(url, headers=self._get_headers(), params=params)
-        if response.status_code == 200:
-            return response.json()
-        return []
+        try:
+            response = requests.get(url, headers=self._get_headers(), params=params)
+            if response.status_code == 200:
+                return response.json()
+            return []
+        except requests.exceptions.RequestException:
+            return []
 
     def get_providers_by_name(self, name: str) -> List[Dict]:
         """Get providers matching a name (case-insensitive partial match)"""
@@ -223,134 +226,141 @@ class MobilityAPI:
         Returns:
             Path to the extracted dataset directory if successful, None otherwise
         """
-        # Get provider info
-        print(f"\nFetching provider info for {provider_id}...")
-        url = f"{self.base_url}/gtfs_feeds/{provider_id}"
-        response = requests.get(url, headers=self._get_headers())
-        if response.status_code != 200:
-            print(f"Failed to get provider info: {response.status_code}")
-            return None
-        
-        provider_data = response.json()
-        provider_name = provider_data.get('provider', 'Unknown Provider')
-        latest_dataset = provider_data.get('latest_dataset')
-        
-        # For direct source, we don't need latest_dataset
-        if use_direct_source:
-            if not provider_data.get('source_info', {}).get('producer_url'):
-                print("No direct download URL available for this provider")
+        try:
+            # Get provider info
+            print(f"\nFetching provider info for {provider_id}...")
+            url = f"{self.base_url}/gtfs_feeds/{provider_id}"
+            response = requests.get(url, headers=self._get_headers())
+            if response.status_code != 200:
+                print(f"Failed to get provider info: {response.status_code}")
                 return None
-            download_url = provider_data['source_info']['producer_url']
-            api_hash = None
-            is_direct = True
-            # Create a pseudo dataset ID for direct downloads
-            latest_dataset = {
-                'id': f"direct_{datetime.now().strftime('%Y%m%d%H%M%S')}"
-            }
-        else:
-            if not latest_dataset:
-                print(f"No latest dataset available for provider {provider_id}")
-                return None
-            download_url = latest_dataset['hosted_url']
-            api_hash = latest_dataset.get('hash')
-            is_direct = False
-
-        # Create provider directory with sanitized name
-        safe_name = self._sanitize_provider_name(provider_name)
-        base_dir = Path(download_dir) if download_dir else self.data_dir
-        base_dir.mkdir(parents=True, exist_ok=True)
-        provider_dir = base_dir / f"{provider_id}_{safe_name}"
-        provider_dir.mkdir(exist_ok=True)
-
-        # Check if we already have this dataset
-        dataset_key = f"{provider_id}_{latest_dataset['id']}"
-        if dataset_key in self.datasets:
-            existing = self.datasets[dataset_key]
-            if existing.is_direct_source == is_direct:
-                if api_hash and api_hash == existing.api_provided_hash:
-                    print(f"Dataset {dataset_key} already exists and hash matches")
-                    return existing.download_path
-                elif not api_hash and existing.download_path.exists():
-                    # For direct source, download and compare file hash
-                    print("Checking if direct source dataset has changed...")
-                    temp_file = provider_dir / f"temp_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
-                    start_time = time.time()
-                    response = requests.get(download_url)
-                    download_time = time.time() - start_time
-                    if response.status_code == 200:
-                        with open(temp_file, 'wb') as f:
-                            f.write(response.content)
-                        new_hash = self._calculate_file_hash(temp_file)
-                        if new_hash == existing.file_hash:
+            
+            provider_data = response.json()
+            provider_name = provider_data.get('provider', 'Unknown Provider')
+            latest_dataset = provider_data.get('latest_dataset')
+            
+            # For direct source, we don't need latest_dataset
+            if use_direct_source:
+                if not provider_data.get('source_info', {}).get('producer_url'):
+                    print("No direct download URL available for this provider")
+                    return None
+                download_url = provider_data['source_info']['producer_url']
+                api_hash = None
+                is_direct = True
+                # Create a pseudo dataset ID for direct downloads
+                latest_dataset = {
+                    'id': f"direct_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+                }
+            else:
+                if not latest_dataset:
+                    print(f"No latest dataset available for provider {provider_id}")
+                    return None
+                download_url = latest_dataset['hosted_url']
+                api_hash = latest_dataset.get('hash')
+                is_direct = False
+            
+            # Create provider directory with sanitized name
+            safe_name = self._sanitize_provider_name(provider_name)
+            base_dir = Path(download_dir) if download_dir else self.data_dir
+            base_dir.mkdir(parents=True, exist_ok=True)
+            provider_dir = base_dir / f"{provider_id}_{safe_name}"
+            provider_dir.mkdir(exist_ok=True)
+            
+            # Check if we already have this dataset
+            dataset_key = f"{provider_id}_{latest_dataset['id']}"
+            if dataset_key in self.datasets:
+                existing = self.datasets[dataset_key]
+                if existing.is_direct_source == is_direct:
+                    if api_hash and api_hash == existing.api_provided_hash:
+                        print(f"Dataset {dataset_key} already exists and hash matches")
+                        return existing.download_path
+                    elif not api_hash and existing.download_path.exists():
+                        # For direct source, download and compare file hash
+                        print("Checking if direct source dataset has changed...")
+                        temp_file = provider_dir / f"temp_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+                        start_time = time.time()
+                        response = requests.get(download_url)
+                        download_time = time.time() - start_time
+                        if response.status_code == 200:
+                            with open(temp_file, 'wb') as f:
+                                f.write(response.content)
+                            new_hash = self._calculate_file_hash(temp_file)
+                            if new_hash == existing.file_hash:
+                                temp_file.unlink()
+                                print(f"Dataset {dataset_key} already exists and content matches")
+                                return existing.download_path
+                            # If hash different, continue with new download
                             temp_file.unlink()
-                            print(f"Dataset {dataset_key} already exists and content matches")
-                            return existing.download_path
-                        # If hash different, continue with new download
-                        temp_file.unlink()
-
-        # Download dataset
-        print(f"\nDownloading dataset from {download_url}...")
-        start_time = time.time()
-        response = requests.get(download_url)
-        download_time = time.time() - start_time
-        
-        if response.status_code != 200:
-            print(f"Failed to download dataset: {response.status_code}")
+            
+            # Download dataset
+            print(f"\nDownloading dataset from {download_url}...")
+            start_time = time.time()
+            response = requests.get(download_url)
+            download_time = time.time() - start_time
+            
+            if response.status_code != 200:
+                print(f"Failed to download dataset: {response.status_code}")
+                return None
+            
+            # Save and process the zip file
+            zip_file = provider_dir / f"{latest_dataset['id']}.zip"
+            with open(zip_file, 'wb') as f:
+                f.write(response.content)
+            
+            zip_size = zip_file.stat().st_size
+            print(f"Download completed in {download_time:.2f} seconds")
+            print(f"Downloaded file size: {zip_size / 1024 / 1024:.2f} MB")
+            
+            # Calculate file hash
+            file_hash = self._calculate_file_hash(zip_file)
+            
+            # Extract dataset
+            print("\nExtracting dataset...")
+            extract_dir = provider_dir / latest_dataset['id']
+            start_time = time.time()
+            with zipfile.ZipFile(zip_file, 'r') as zip_ref:
+                zip_ref.extractall(extract_dir)
+            extract_time = time.time() - start_time
+            
+            extracted_size = self._get_directory_size(extract_dir)
+            print(f"Extraction completed in {extract_time:.2f} seconds")
+            print(f"Extracted size: {extracted_size / 1024 / 1024:.2f} MB")
+            
+            # Get feed dates from feed_info.txt
+            feed_start_date, feed_end_date = self._get_feed_dates(extract_dir)
+            if feed_start_date and feed_end_date:
+                print(f"Feed validity period: {feed_start_date} to {feed_end_date}")
+            
+            # Clean up zip file
+            print("Cleaning up downloaded zip file...")
+            zip_file.unlink()
+            
+            # Save metadata
+            metadata = DatasetMetadata(
+                provider_id=provider_id,
+                provider_name=provider_name,
+                dataset_id=latest_dataset['id'],
+                download_date=datetime.now(),
+                source_url=download_url,
+                is_direct_source=is_direct,
+                api_provided_hash=api_hash,
+                file_hash=file_hash,
+                download_path=extract_dir,
+                feed_start_date=feed_start_date,
+                feed_end_date=feed_end_date
+            )
+            self.datasets[dataset_key] = metadata
+            self._save_metadata()  # Save to main metadata file
+            if download_dir:
+                self._save_metadata(base_dir)  # Save to custom directory metadata file
+            
+            return extract_dir
+        except requests.exceptions.RequestException as e:
+            print(f"Network error during download: {str(e)}")
             return None
-
-        # Save and process the zip file
-        zip_file = provider_dir / f"{latest_dataset['id']}.zip"
-        with open(zip_file, 'wb') as f:
-            f.write(response.content)
-        
-        zip_size = zip_file.stat().st_size
-        print(f"Download completed in {download_time:.2f} seconds")
-        print(f"Downloaded file size: {zip_size / 1024 / 1024:.2f} MB")
-
-        # Calculate file hash
-        file_hash = self._calculate_file_hash(zip_file)
-
-        # Extract dataset
-        print("\nExtracting dataset...")
-        extract_dir = provider_dir / latest_dataset['id']
-        start_time = time.time()
-        with zipfile.ZipFile(zip_file, 'r') as zip_ref:
-            zip_ref.extractall(extract_dir)
-        extract_time = time.time() - start_time
-        
-        extracted_size = self._get_directory_size(extract_dir)
-        print(f"Extraction completed in {extract_time:.2f} seconds")
-        print(f"Extracted size: {extracted_size / 1024 / 1024:.2f} MB")
-
-        # Get feed dates from feed_info.txt
-        feed_start_date, feed_end_date = self._get_feed_dates(extract_dir)
-        if feed_start_date and feed_end_date:
-            print(f"Feed validity period: {feed_start_date} to {feed_end_date}")
-
-        # Clean up zip file
-        print("Cleaning up downloaded zip file...")
-        zip_file.unlink()
-
-        # Save metadata
-        metadata = DatasetMetadata(
-            provider_id=provider_id,
-            provider_name=provider_name,
-            dataset_id=latest_dataset['id'],
-            download_date=datetime.now(),
-            source_url=download_url,
-            is_direct_source=is_direct,
-            api_provided_hash=api_hash,
-            file_hash=file_hash,
-            download_path=extract_dir,
-            feed_start_date=feed_start_date,
-            feed_end_date=feed_end_date
-        )
-        self.datasets[dataset_key] = metadata
-        self._save_metadata()  # Save to main metadata file
-        if download_dir:
-            self._save_metadata(base_dir)  # Save to custom directory metadata file
-
-        return extract_dir
+        except (zipfile.BadZipFile, OSError) as e:
+            print(f"Error processing dataset: {str(e)}")
+            return None
 
 if __name__ == "__main__":
     try:
