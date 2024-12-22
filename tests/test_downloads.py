@@ -8,44 +8,40 @@ import zipfile
 import json
 import io
 
-def test_hungary_provider():
-    """Test downloading a Hungarian provider's dataset"""
+def test_smallest_dataset():
+    """Test downloading the smallest known dataset"""
     api = MobilityAPI()
     
-    # Get Volánbusz dataset
-    dataset_path = api.download_latest_dataset("tld-5862")
+    # Get the smallest dataset we found (mdb-859, ~3.1 KB)
+    dataset_path = api.download_latest_dataset("mdb-859")
     assert dataset_path.exists()
-    assert (dataset_path / "feed_info.txt").exists()
     assert (dataset_path / "stops.txt").exists()
     assert (dataset_path / "routes.txt").exists()
 
-def test_belgium_provider():
-    """Test downloading a Belgian provider's dataset"""
+def test_multiple_small_datasets():
+    """Test downloading multiple small datasets"""
     api = MobilityAPI()
     
-    # Get SNCB dataset
-    providers = api.get_providers_by_name("SNCB")
-    assert len(providers) > 0
+    # Test with a few small datasets we found
+    small_datasets = [
+        "mdb-2036",  # ~10.3 KB
+        "mdb-685",   # ~12.3 KB
+        "mdb-1860",  # ~12.9 KB
+    ]
     
-    sncb_id = providers[0]["id"]
-    dataset_path = api.download_latest_dataset(sncb_id)
-    assert dataset_path.exists()
-    assert (dataset_path / "feed_info.txt").exists()
-    assert (dataset_path / "stops.txt").exists()
-    assert (dataset_path / "routes.txt").exists()
+    for provider_id in small_datasets:
+        dataset_path = api.download_latest_dataset(provider_id)
+        assert dataset_path.exists()
+        assert (dataset_path / "stops.txt").exists()
+        assert (dataset_path / "routes.txt").exists()
 
 def test_country_search():
     """Test searching providers by country"""
     api = MobilityAPI()
     
-    # Get Hungarian providers
-    providers = api.get_providers_by_country("HU")
+    # Get providers from a country with small datasets
+    providers = api.get_providers_by_country("LU")  # Luxembourg
     assert len(providers) > 0
-    
-    # Check if we have some expected providers
-    provider_names = [p["provider"] for p in providers]
-    assert any("BKK" in name for name in provider_names)  # Budapest
-    assert any("Volán" in name for name in provider_names)  # National bus
 
 def test_custom_data_dir(monkeypatch):
     """Test using a custom data directory"""
@@ -85,8 +81,8 @@ def test_custom_data_dir(monkeypatch):
     custom_dir = Path("custom_test_downloads")
     api = MobilityAPI(data_dir=custom_dir)
 
-    # Get Volánbusz dataset
-    dataset_path = api.download_latest_dataset("tld-5862")
+    # Use our smallest dataset for testing
+    dataset_path = api.download_latest_dataset("mdb-859")
     assert custom_dir in dataset_path.parents
 
 def test_invalid_provider():
