@@ -302,3 +302,38 @@ def test_main_script():
     token = api.get_access_token()
     assert token is not None
     assert isinstance(token, str)
+
+def test_dataset_management():
+    """Test listing and deleting datasets"""
+    # Use a fresh directory
+    data_dir = Path("test_dataset_management")
+    if data_dir.exists():
+        shutil.rmtree(data_dir)
+    
+    api = MobilityAPI(data_dir=data_dir)
+    
+    try:
+        # Initially no datasets
+        assert len(api.list_downloaded_datasets()) == 0
+        
+        # Download a dataset
+        dataset_path = api.download_latest_dataset("tld-5862")
+        assert dataset_path is not None
+        assert dataset_path.exists()
+        
+        # Should now have one dataset
+        datasets = api.list_downloaded_datasets()
+        assert len(datasets) == 1
+        assert datasets[0].provider_id == "tld-5862"
+        
+        # Try to delete non-existent dataset
+        assert not api.delete_dataset("non-existent-id")
+        
+        # Delete the dataset
+        assert api.delete_dataset("tld-5862")
+        assert not dataset_path.exists()
+        assert len(api.list_downloaded_datasets()) == 0
+        
+    finally:
+        if data_dir.exists():
+            shutil.rmtree(data_dir)
