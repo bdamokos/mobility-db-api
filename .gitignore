@@ -23,6 +23,8 @@ downloads/
 test_downloads/
 test_downloads_direct/
 custom_downloads/
+mobility_datasets/
+custom_test_downloads/
 
 # Jupyter
 .ipynb_checkpoints/
