@@ -1,76 +1,79 @@
-# Mobility Database API Explorer
+# Mobility Database API Client
 
-This project provides tools to interact with the [Mobility Database API](https://mobilitydatabase.org) and explore GTFS data from various transit providers. The Mobility Database is a comprehensive repository of public transportation data from around the world, providing standardized GTFS feeds for transit agencies.
+[![PyPI version](https://badge.fury.io/py/mobility-db-api.svg)](https://badge.fury.io/py/mobility-db-api)
+[![Tests](https://github.com/bdamokos/mobility-db-api/actions/workflows/tests.yml/badge.svg)](https://github.com/bdamokos/mobility-db-api/actions/workflows/tests.yml)
+[![codecov](https://codecov.io/gh/bdamokos/mobility-db-api/branch/main/graph/badge.svg)](https://codecov.io/gh/bdamokos/mobility-db-api)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+A Python client for downloading GTFS files through the Mobility Database API.
 
 ## Installation
 
-You can install this package in several ways:
+You can install the package from PyPI:
 
-1. From PyPI (recommended):
 ```bash
 pip install mobility-db-api
 ```
 
-2. From GitHub:
+Or directly from GitHub:
+
 ```bash
 pip install git+https://github.com/bdamokos/mobility-db-api.git
 ```
 
-3. For development:
-```bash
-git clone https://github.com/bdamokos/mobility-db-api.git
-cd mobility-db-api
-pip install -e .
-```
-
-## Authentication
-
-1. Register for an account at [mobilitydatabase.org](https://mobilitydatabase.org)
-2. After registration, obtain your refresh token from your account settings
-3. Store your refresh token in a `.env` file:
-```
-MOBILITY_API_REFRESH_TOKEN=your_refresh_token_here
-```
-
 ## Usage
+
+First, you need to get a refresh token from the Mobility Database API. You can store it in a `.env` file:
+
+```bash
+MOBILITY_API_REFRESH_TOKEN=your_token_here
+```
+
+Then you can use the API client:
 
 ```python
 from mobility_db_api import MobilityAPI
 
-# Initialize with default settings
+# Initialize the client
 api = MobilityAPI()
 
-# Or specify custom data directory and token
-api = MobilityAPI(data_dir="custom_data", refresh_token="your_token_here")
+# Search for providers in Hungary
+providers = api.get_providers_by_country("HU")
 
-# Search providers by country
-providers = api.get_providers_by_country("HU")  # Hungary
-
-# Search providers by name
-providers = api.get_providers_by_name("SNCB")  # Belgian Railways
-
-# Download latest dataset
-dataset_path = api.download_latest_dataset(provider_id="tld-5862")
-
-# Download using direct URL (if available)
-dataset_path = api.download_latest_dataset(provider_id="tld-5862", use_direct_source=True)
+# Download a dataset
+dataset_path = api.download_latest_dataset("tld-5862")  # Volánbusz
 ```
 
 ## Features
 
-- Search transit providers by country or name
-- Download and extract GTFS datasets
-- Support for both hosted and direct source downloads
-- Automatic handling of dataset updates
-- Metadata tracking including feed validity dates
-- Custom download locations with separate metadata tracking
-- Filesystem-friendly naming with Unicode support
+- Search providers by country or name
+- Download GTFS datasets from hosted or direct sources
+- Automatic metadata tracking
+- Environment variable support for API tokens
+- Progress tracking for downloads
+- Feed validity period detection
 
-## Data Storage
+## Development
 
-Downloaded datasets are organized as follows:
-- Each provider gets a dedicated directory named `{provider_id}_{sanitized_name}`
-- Datasets are extracted to subdirectories with their dataset ID
-- Metadata is stored in `datasets_metadata.json` in each data directory
-- Original zip files are automatically cleaned up after extraction
+To set up the development environment:
+
+```bash
+# Clone the repository
+git clone https://github.com/bdamokos/mobility-db-api.git
+cd mobility-db-api
+
+# Install in development mode with test dependencies
+pip install -e ".[dev]"
+
+# Run tests
+pytest tests/
+```
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Acknowledgments
+
+- [Mobility Database](https://database.mobilitydata.org/) for providing the API
 
