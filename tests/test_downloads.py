@@ -7,6 +7,8 @@ import shutil
 import zipfile
 import json
 import io
+from typing import Dict, Set
+from unittest.mock import patch
 
 def test_smallest_dataset():
     """Test downloading the smallest known dataset"""
@@ -415,3 +417,297 @@ def test_dataset_management(monkeypatch):
     finally:
         if data_dir.exists():
             shutil.rmtree(data_dir)
+
+def test_dataset_update_with_new_hash(monkeypatch):
+    """Test handling of dataset updates when API reports a new version with different hash"""
+    # Create two different test datasets
+    old_content = b'old dataset content'
+    new_content = b'new dataset content - updated version'
+    
+    # Track which content should be returned
+    return_new_version = False
+    
+    def mock_get(*args, **kwargs):
+        nonlocal return_new_version
+        response = requests.Response()
+        response.status_code = 200
+        
+        if "gtfs_feeds" in args[0]:  # Provider info request
+            dataset_id = "test-dataset-v1" if not return_new_version else "test-dataset-v2"
+            dataset_hash = "old_hash" if not return_new_version else "new_hash"
+            response._content = json.dumps({
+                "provider": "Test Provider",
+                "latest_dataset": {
+                    "id": dataset_id,
+                    "hosted_url": "http://test.com/dataset.zip",
+                    "hash": dataset_hash
+                }
+            }).encode()
+        else:  # Dataset download request
+            response._content = old_content if not return_new_version else new_content
+        return response
+
+    def mock_post(*args, **kwargs):
+        response = requests.Response()
+        response.status_code = 200
+        response._content = json.dumps({"access_token": "mock_token"}).encode()
+        return response
+
+    monkeypatch.setattr(requests, "get", mock_get)
+    monkeypatch.setattr(requests, "post", mock_post)
+
+    # Use a fresh directory
+    data_dir = Path("test_dataset_updates")
+    if data_dir.exists():
+        shutil.rmtree(data_dir)
+
+    api = MobilityAPI(data_dir=data_dir)
+
+    try:
+        # First download with old version
+        first_path = api.download_latest_dataset("test-provider")
+        assert first_path is not None
+        assert first_path.exists()
+        
+        # Verify old content
+        with open(first_path / "test.txt", "rb") as f:
+            assert f.read() == old_content
+        
+        # Switch to new version
+        return_new_version = True
+        
+        # Download again - should get new version
+        second_path = api.download_latest_dataset("test-provider")
+        assert second_path is not None
+        assert second_path.exists()
+        assert second_path != first_path  # Should be a different path
+        
+        # Verify new content
+        with open(second_path / "test.txt", "rb") as f:
+            assert f.read() == new_content
+        
+        # Old path should be cleaned up
+        assert not first_path.exists()
+        
+        # Metadata should be updated
+        datasets = api.list_downloaded_datasets()
+        assert len(datasets) == 1  # Should only have the new version
+        assert datasets[0].dataset_id == "test-dataset-v2"
+
+    finally:
+        if data_dir.exists():
+            shutil.rmtree(data_dir)
+
+def test_real_dataset_update():
+    """Test downloading a dataset and then updating it when a new version is available."""
+    test_dir = "test_real_updates"
+    test_data_dir = "test_data_storage"  # Separate directory for our test data
+    api = MobilityAPI(test_dir)
+
+    # Use our two smallest known datasets
+    dataset_a_id = "mdb-859"  # 3.1 KB
+    dataset_b_id = "mdb-2036"  # 10.3 KB
+    
+    try:
+        print("\nStep 1: Initial downloads to temporary storage")
+        # First download both datasets to our test data storage
+        temp_api = MobilityAPI(test_data_dir)
+        dataset_a_path = temp_api.download_latest_dataset(dataset_a_id)
+        assert dataset_a_path is not None, "Dataset A download failed"
+        assert dataset_a_path.exists(), "Dataset A path does not exist"
+        print("✓ Dataset A downloaded successfully")
+        
+        dataset_b_path = temp_api.download_latest_dataset(dataset_b_id)
+        assert dataset_b_path is not None, "Dataset B download failed"
+        assert dataset_b_path.exists(), "Dataset B path does not exist"
+        print("✓ Dataset B downloaded successfully")
+        
+        print(f"\nStep 2: Reading dataset contents")
+        # Store both datasets' content
+        dataset_a_content = {}
+        dataset_b_content = {}
+        
+        for file_path in dataset_a_path.rglob('*'):
+            if file_path.is_file():
+                with open(file_path, 'rb') as f:
+                    dataset_a_content[file_path.name] = f.read()
+        print(f"✓ Read {len(dataset_a_content)} files from dataset A")
+        
+        for file_path in dataset_b_path.rglob('*'):
+            if file_path.is_file():
+                with open(file_path, 'rb') as f:
+                    dataset_b_content[file_path.name] = f.read()
+        print(f"✓ Read {len(dataset_b_content)} files from dataset B")
+        
+        print("\nStep 3: Getting dataset A's metadata")
+        # Get dataset A's real metadata
+        url = f"{api.base_url}/gtfs_feeds/{dataset_a_id}"
+        dataset_a_info = requests.get(url, headers=api._get_headers()).json()
+        print("✓ Got dataset A's metadata")
+        
+        print("\nStep 4: Clean up test directory and metadata")
+        # Clean up test directory to start fresh
+        if Path(test_dir).exists():
+            shutil.rmtree(test_dir)
+        Path(test_dir).mkdir()
+        # Clean up metadata file if it exists
+        metadata_file = Path(test_dir) / "dataset_metadata.json"
+        if metadata_file.exists():
+            metadata_file.unlink()
+        print("✓ Test directory and metadata cleaned up")
+        
+        print("\nStep 5: Setting up mock responses")
+        # Create mock that first serves A's metadata, then B's content with updated A metadata
+        is_second_request = False
+        first_dataset_id = None  # Store the first dataset ID
+        def mock_get(*args, **kwargs):
+            nonlocal is_second_request, first_dataset_id
+            response = requests.Response()
+            response.status_code = 200
+            
+            if f"gtfs_feeds/{dataset_a_id}" in args[0]:
+                # First time: return A's real metadata
+                # Second time: return A's metadata with updated hash and dataset ID
+                if not is_second_request:
+                    response._content = json.dumps(dataset_a_info).encode()
+                    first_dataset_id = dataset_a_info['latest_dataset']['id']  # Store the first dataset ID
+                else:
+                    modified_info = dataset_a_info.copy()
+                    modified_info['latest_dataset'] = {
+                        'id': 'mdb-2036-202408190034',  # Use a new dataset ID for the second download
+                        'hash': 'updated_hash_value',
+                        'hosted_url': f"https://files.mobilitydatabase.org/mdb-2036/mdb-2036-202408190034/mdb-2036-202408190034.zip"  # Use dataset B's real URL
+                    }
+                    response._content = json.dumps(modified_info).encode()
+            elif ".zip" in args[0]:
+                # First time: return A's content
+                # Second time: return B's content
+                if not is_second_request:
+                    is_second_request = True
+                    # Create a zip file with dataset A's content
+                    zip_buffer = io.BytesIO()
+                    with zipfile.ZipFile(zip_buffer, 'w') as zf:
+                        for filename, content in dataset_a_content.items():
+                            zf.writestr(filename, content)
+                    response._content = zip_buffer.getvalue()
+                else:
+                    # Create a zip file with dataset B's content
+                    zip_buffer = io.BytesIO()
+                    with zipfile.ZipFile(zip_buffer, 'w') as zf:
+                        for filename, content in dataset_b_content.items():
+                            zf.writestr(filename, content)
+                    response._content = zip_buffer.getvalue()
+            return response
+        print("✓ Mock responses ready")
+        
+        print("\nStep 6: Testing with mock responses")
+        with patch('requests.get', side_effect=mock_get):
+            # First download - should get A's content
+            print("\nFirst mock download (should get A's content):")
+            first_path = api.download_latest_dataset(dataset_a_id)
+            assert first_path is not None, "First mock download failed"
+            assert first_path.exists(), "First mock download path does not exist"
+            print("✓ First download successful")
+            
+            # Second download - should get B's content
+            print("\nSecond mock download (should get B's content):")
+            second_path = api.download_latest_dataset(dataset_a_id)
+            assert second_path is not None, "Second mock download failed"
+            assert second_path.exists(), "Second mock download path does not exist"
+            assert second_path != first_path, "Second download path should be different"
+            print("✓ Second download successful")
+            
+            # Verify the paths
+            assert not first_path.exists(), "Old path should be gone"
+            print("✓ Old path was cleaned up")
+            
+            # Metadata should be updated
+            datasets = api.list_downloaded_datasets()
+            assert len(datasets) == 1, "Should have exactly one dataset"
+            metadata = datasets[0]
+            assert metadata.provider_id == dataset_a_id, "Provider ID mismatch"
+            assert metadata.hash == 'updated_hash_value', "Hash not updated"
+            assert metadata.dataset_id == 'mdb-2036-202408190034', "Dataset ID not updated"
+            assert metadata.download_path == second_path, "Download path mismatch"
+            print("✓ Metadata updated correctly")
+            
+            # Compare file contents
+            def get_dir_contents(path):
+                return {f.name for f in Path(path).rglob('*') if f.is_file()}
+            
+            # Files should match dataset B's files
+            second_path_files = get_dir_contents(second_path)
+            expected_files = set(dataset_b_content.keys())
+            assert second_path_files == expected_files, f"File mismatch. Found: {second_path_files}, Expected: {expected_files}"
+            print("✓ File contents match expected dataset")
+    
+    finally:
+        # Clean up both directories
+        for dir_path in [test_dir, test_data_dir]:
+            if Path(dir_path).exists():
+                print(f"\nCleaning up directory: {dir_path}")
+                shutil.rmtree(dir_path)
+                print(f"✓ {dir_path} cleaned up")
+
+def test_selective_dataset_deletion():
+    """Test that deleting a specific dataset leaves other datasets intact."""
+    test_dir = "test_selective_deletion"
+    api = MobilityAPI(test_dir)
+    
+    # Use our three smallest known datasets
+    dataset_a_id = "mdb-859"   # 3.1 KB
+    dataset_b_id = "mdb-2036"  # 10.3 KB
+    dataset_c_id = "mdb-685"   # 12.3 KB
+    
+    try:
+        print("\nStep 1: Download all three datasets")
+        # Download all datasets
+        path_a = api.download_latest_dataset(dataset_a_id)
+        assert path_a is not None, "Dataset A download failed"
+        assert path_a.exists(), "Dataset A path does not exist"
+        print("✓ Dataset A downloaded successfully")
+        
+        path_b = api.download_latest_dataset(dataset_b_id)
+        assert path_b is not None, "Dataset B download failed"
+        assert path_b.exists(), "Dataset B path does not exist"
+        print("✓ Dataset B downloaded successfully")
+        
+        path_c = api.download_latest_dataset(dataset_c_id)
+        assert path_c is not None, "Dataset C download failed"
+        assert path_c.exists(), "Dataset C path does not exist"
+        print("✓ Dataset C downloaded successfully")
+        
+        print("\nStep 2: Verify initial state")
+        # Verify all datasets exist
+        datasets = api.list_downloaded_datasets()
+        assert len(datasets) == 3, "Should have all three datasets"
+        dataset_ids = {d.provider_id for d in datasets}
+        assert dataset_ids == {dataset_a_id, dataset_b_id, dataset_c_id}, "Missing some datasets"
+        print("✓ Initial state verified")
+        
+        print("\nStep 3: Delete dataset B")
+        # Delete dataset B
+        success = api.delete_dataset(dataset_b_id)
+        assert success, "Dataset B deletion failed"
+        print("✓ Dataset B deleted")
+        
+        print("\nStep 4: Verify final state")
+        # Verify dataset B is gone but A and C remain
+        assert not path_b.exists(), "Dataset B path should not exist"
+        assert path_a.exists(), "Dataset A should still exist"
+        assert path_c.exists(), "Dataset C should still exist"
+        print("✓ Filesystem state verified")
+        
+        # Verify metadata
+        datasets = api.list_downloaded_datasets()
+        assert len(datasets) == 2, "Should have two datasets"
+        dataset_ids = {d.provider_id for d in datasets}
+        assert dataset_ids == {dataset_a_id, dataset_c_id}, "Metadata doesn't match expected state"
+        print("✓ Metadata state verified")
+    
+    finally:
+        # Clean up
+        if Path(test_dir).exists():
+            print("\nCleaning up test directory")
+            shutil.rmtree(test_dir)
+            print("✓ Test directory cleaned up")
