@@ -714,3 +714,243 @@ def test_selective_dataset_deletion():
             print("\nCleaning up test directory")
             shutil.rmtree(test_dir)
             print("✓ Test directory cleaned up")
+
+def test_delete_provider_datasets():
+    """Test deleting all datasets for a specific provider."""
+    test_dir = "test_provider_deletion"
+    api = MobilityAPI(test_dir)
+    
+    # Use our three smallest known datasets
+    # Two from one provider, one from another
+    dataset_a_id = "mdb-859"   # 3.1 KB
+    dataset_b_id = "mdb-2036"  # 10.3 KB
+    dataset_c_id = "mdb-685"   # 12.3 KB
+    
+    try:
+        print("\nStep 1: Download all datasets")
+        # Download all datasets
+        path_a = api.download_latest_dataset(dataset_a_id)
+        assert path_a is not None, "Dataset A download failed"
+        assert path_a.exists(), "Dataset A path does not exist"
+        print("✓ Dataset A downloaded successfully")
+        
+        path_b = api.download_latest_dataset(dataset_b_id)
+        assert path_b is not None, "Dataset B download failed"
+        assert path_b.exists(), "Dataset B path does not exist"
+        print("✓ Dataset B downloaded successfully")
+        
+        path_c = api.download_latest_dataset(dataset_c_id)
+        assert path_c is not None, "Dataset C download failed"
+        assert path_c.exists(), "Dataset C path does not exist"
+        print("✓ Dataset C downloaded successfully")
+        
+        print("\nStep 2: Verify initial state")
+        # Verify all datasets exist
+        datasets = api.list_downloaded_datasets()
+        assert len(datasets) == 3, "Should have all three datasets"
+        dataset_ids = {d.provider_id for d in datasets}
+        assert dataset_ids == {dataset_a_id, dataset_b_id, dataset_c_id}, "Missing some datasets"
+        print("✓ Initial state verified")
+        
+        print("\nStep 3: Delete all datasets for provider A")
+        # Delete all datasets for provider A
+        success = api.delete_provider_datasets(dataset_a_id)
+        assert success, "Provider A dataset deletion failed"
+        print("✓ Provider A datasets deleted")
+        
+        print("\nStep 4: Verify final state")
+        # Verify provider A datasets are gone but others remain
+        assert not path_a.exists(), "Dataset A path should not exist"
+        assert path_b.exists(), "Dataset B should still exist"
+        assert path_c.exists(), "Dataset C should still exist"
+        print("✓ Filesystem state verified")
+        
+        # Verify metadata
+        datasets = api.list_downloaded_datasets()
+        assert len(datasets) == 2, "Should have two datasets"
+        dataset_ids = {d.provider_id for d in datasets}
+        assert dataset_ids == {dataset_b_id, dataset_c_id}, "Metadata doesn't match expected state"
+        print("✓ Metadata state verified")
+    
+    finally:
+        # Clean up
+        if Path(test_dir).exists():
+            print("\nCleaning up test directory")
+            shutil.rmtree(test_dir)
+            print("✓ Test directory cleaned up")
+
+def test_delete_all_datasets():
+    """Test deleting all downloaded datasets."""
+    test_dir = "test_all_deletion"
+    api = MobilityAPI(test_dir)
+    
+    # Use our three smallest known datasets
+    dataset_a_id = "mdb-859"   # 3.1 KB
+    dataset_b_id = "mdb-2036"  # 10.3 KB
+    dataset_c_id = "mdb-685"   # 12.3 KB
+    
+    try:
+        print("\nStep 1: Download all datasets")
+        # Download all datasets
+        path_a = api.download_latest_dataset(dataset_a_id)
+        assert path_a is not None, "Dataset A download failed"
+        assert path_a.exists(), "Dataset A path does not exist"
+        print("✓ Dataset A downloaded successfully")
+        
+        path_b = api.download_latest_dataset(dataset_b_id)
+        assert path_b is not None, "Dataset B download failed"
+        assert path_b.exists(), "Dataset B path does not exist"
+        print("✓ Dataset B downloaded successfully")
+        
+        path_c = api.download_latest_dataset(dataset_c_id)
+        assert path_c is not None, "Dataset C download failed"
+        assert path_c.exists(), "Dataset C path does not exist"
+        print("✓ Dataset C downloaded successfully")
+        
+        print("\nStep 2: Verify initial state")
+        # Verify all datasets exist
+        datasets = api.list_downloaded_datasets()
+        assert len(datasets) == 3, "Should have all three datasets"
+        dataset_ids = {d.provider_id for d in datasets}
+        assert dataset_ids == {dataset_a_id, dataset_b_id, dataset_c_id}, "Missing some datasets"
+        print("✓ Initial state verified")
+        
+        print("\nStep 3: Delete all datasets")
+        # Delete all datasets
+        success = api.delete_all_datasets()
+        assert success, "All datasets deletion failed"
+        print("✓ All datasets deleted")
+        
+        print("\nStep 4: Verify final state")
+        # Verify all datasets are gone
+        assert not path_a.exists(), "Dataset A path should not exist"
+        assert not path_b.exists(), "Dataset B path should not exist"
+        assert not path_c.exists(), "Dataset C path should not exist"
+        print("✓ Filesystem state verified")
+        
+        # Verify metadata
+        datasets = api.list_downloaded_datasets()
+        assert len(datasets) == 0, "Should have no datasets"
+        print("✓ Metadata state verified")
+        
+        # Test deleting when no datasets exist
+        success = api.delete_all_datasets()
+        assert success, "Deleting no datasets should succeed"
+        print("✓ Empty deletion succeeded")
+    
+    finally:
+        # Clean up
+        if Path(test_dir).exists():
+            print("\nCleaning up test directory")
+            shutil.rmtree(test_dir)
+            print("✓ Test directory cleaned up")
+
+def test_directory_cleanup_behavior():
+    """Test the cleanup behavior of deletion methods with various directory structures."""
+    test_dir = "test_cleanup_behavior"
+    api = MobilityAPI(test_dir)
+    
+    # Use our smallest datasets
+    dataset_a_id = "mdb-859"   # 3.1 KB
+    dataset_b_id = "mdb-2036"  # 10.3 KB
+    
+    try:
+        print("\nStep 1: Setting up test directory structure")
+        base_dir = Path(test_dir)
+        
+        # Create some unrelated files and directories that should be preserved
+        unrelated_dir = base_dir / "unrelated_dir"
+        unrelated_dir.mkdir(parents=True)
+        (unrelated_dir / "keep_this_file.txt").write_text("important content")
+        
+        # Create a custom file in the main data directory
+        (base_dir / "custom_file.txt").write_text("custom content")
+        
+        print("✓ Created unrelated files and directories")
+        
+        print("\nStep 2: Download datasets")
+        # Download first dataset
+        path_a = api.download_latest_dataset(dataset_a_id)
+        assert path_a is not None, "Dataset A download failed"
+        assert path_a.exists(), "Dataset A path does not exist"
+        
+        # Create a custom file in the provider directory
+        provider_dir_a = path_a.parent
+        (provider_dir_a / "provider_specific.txt").write_text("provider content")
+        
+        # Download second dataset from same provider (if possible)
+        path_a2 = api.download_latest_dataset(dataset_a_id)
+        if path_a2 and path_a2 != path_a:  # If we got a different version
+            assert path_a2.exists(), "Dataset A2 path does not exist"
+        
+        # Download dataset from different provider
+        path_b = api.download_latest_dataset(dataset_b_id)
+        assert path_b is not None, "Dataset B download failed"
+        assert path_b.exists(), "Dataset B path does not exist"
+        print("✓ Downloaded datasets and created provider-specific files")
+        
+        print("\nStep 3: Verify initial structure")
+        assert base_dir.exists(), "Base directory should exist"
+        assert unrelated_dir.exists(), "Unrelated directory should exist"
+        assert (base_dir / "custom_file.txt").exists(), "Custom file should exist"
+        assert (provider_dir_a / "provider_specific.txt").exists(), "Provider-specific file should exist"
+        print("✓ Initial directory structure verified")
+        
+        print("\nStep 4: Test single dataset deletion")
+        # Delete one dataset but keep provider-specific file
+        success = api.delete_dataset(dataset_a_id)
+        assert success, "Dataset deletion failed"
+        assert (provider_dir_a / "provider_specific.txt").exists(), "Provider-specific file should be preserved"
+        assert unrelated_dir.exists(), "Unrelated directory should be preserved"
+        assert (base_dir / "custom_file.txt").exists(), "Custom file should be preserved"
+        print("✓ Single dataset deletion preserved other files")
+        
+        print("\nStep 5: Test provider deletion")
+        # Create a new dataset for the first provider
+        path_a_new = api.download_latest_dataset(dataset_a_id)
+        assert path_a_new is not None, "New dataset A download failed"
+        
+        # Delete all datasets for provider A
+        success = api.delete_provider_datasets(dataset_a_id)
+        assert success, "Provider datasets deletion failed"
+        
+        # Provider directory should still exist if it has custom files
+        if (provider_dir_a / "provider_specific.txt").exists():
+            assert provider_dir_a.exists(), "Provider directory should exist when it has custom files"
+        print("✓ Provider deletion preserved custom files")
+        
+        print("\nStep 6: Test complete cleanup")
+        # Remove provider-specific file
+        if (provider_dir_a / "provider_specific.txt").exists():
+            (provider_dir_a / "provider_specific.txt").unlink()
+        
+        # Download new datasets
+        path_a_final = api.download_latest_dataset(dataset_a_id)
+        assert path_a_final is not None, "Final dataset A download failed"
+        
+        # Delete all datasets
+        success = api.delete_all_datasets()
+        assert success, "All datasets deletion failed"
+        
+        print("\nStep 7: Verify final state")
+        # These should still exist
+        assert base_dir.exists(), "Base directory should still exist"
+        assert unrelated_dir.exists(), "Unrelated directory should still exist"
+        assert (base_dir / "custom_file.txt").exists(), "Custom file should still exist"
+        assert (unrelated_dir / "keep_this_file.txt").exists(), "Unrelated file should still exist"
+        
+        # Provider directory should be gone if it had no custom files
+        if not (provider_dir_a / "provider_specific.txt").exists():
+            assert not provider_dir_a.exists(), "Empty provider directory should be removed"
+        
+        # Verify metadata state
+        datasets = api.list_downloaded_datasets()
+        assert len(datasets) == 0, "Should have no datasets in metadata"
+        print("✓ Final state verified - all datasets removed, custom files preserved")
+        
+    finally:
+        # Clean up
+        if base_dir.exists():
+            print("\nCleaning up test directory")
+            shutil.rmtree(base_dir)
+            print("✓ Test directory cleaned up")
