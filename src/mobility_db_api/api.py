@@ -455,6 +455,21 @@ class MobilityAPI:
         return [meta for meta in self.datasets.values() 
                 if meta.download_path.exists()]
 
+    def _cleanup_empty_provider_dir(self, provider_path: Path) -> None:
+        """
+        Clean up a provider directory if it's empty.
+        Only removes the directory if it exists and contains no files or subdirectories.
+        """
+        try:
+            if provider_path.exists():
+                # Check if directory is empty (excluding metadata file)
+                contents = list(provider_path.iterdir())
+                if not contents or (len(contents) == 1 and contents[0].name == "datasets_metadata.json"):
+                    shutil.rmtree(provider_path)
+                    self.logger.info(f"Removed empty provider directory: {provider_path}")
+        except Exception as e:
+            self.logger.warning(f"Failed to clean up provider directory {provider_path}: {str(e)}")
+
     def delete_dataset(self, provider_id: str, dataset_id: Optional[str] = None) -> bool:
         """
         Delete a downloaded dataset.
@@ -482,6 +497,7 @@ class MobilityAPI:
             matches.sort(key=lambda x: x[1].download_date, reverse=True)
         
         key, meta = matches[0]
+        provider_dir = meta.download_path.parent
         
         try:
             if meta.download_path.exists():
@@ -492,11 +508,104 @@ class MobilityAPI:
             del self.datasets[key]
             self._save_metadata()
             
+            # Clean up provider directory if empty
+            self._cleanup_empty_provider_dir(provider_dir)
+            
             return True
             
         except Exception as e:
             self.logger.error(f"Error deleting dataset: {str(e)}")
             return False
+
+    def delete_provider_datasets(self, provider_id: str) -> bool:
+        """
+        Delete all downloaded datasets for a specific provider.
+        
+        Args:
+            provider_id: The ID of the provider whose datasets should be deleted
+            
+        Returns:
+            True if all datasets were deleted successfully, False if any deletion failed
+        """
+        # Find all datasets for this provider
+        matches = [
+            (key, meta) for key, meta in self.datasets.items()
+            if meta.provider_id == provider_id
+        ]
+        
+        if not matches:
+            self.logger.error(f"No datasets found for provider {provider_id}")
+            return False
+        
+        success = True
+        provider_dir = None
+        
+        for key, meta in matches:
+            try:
+                if meta.download_path.exists():
+                    shutil.rmtree(meta.download_path)
+                    self.logger.info(f"Deleted dataset directory: {meta.download_path}")
+                
+                # Store provider directory for later cleanup
+                provider_dir = meta.download_path.parent
+                
+                # Remove from metadata
+                del self.datasets[key]
+                
+            except Exception as e:
+                self.logger.error(f"Error deleting dataset {key}: {str(e)}")
+                success = False
+        
+        # Save metadata after all deletions
+        if success:
+            self._save_metadata()
+            
+            # Clean up provider directory if empty
+            if provider_dir:
+                self._cleanup_empty_provider_dir(provider_dir)
+            
+        return success
+
+    def delete_all_datasets(self) -> bool:
+        """
+        Delete all downloaded datasets.
+        The main data directory is preserved, only dataset directories are removed.
+        
+        Returns:
+            True if all datasets were deleted successfully, False if any deletion failed
+        """
+        if not self.datasets:
+            self.logger.info("No datasets to delete")
+            return True
+        
+        success = True
+        provider_dirs = set()
+        
+        for key, meta in list(self.datasets.items()):
+            try:
+                if meta.download_path.exists():
+                    shutil.rmtree(meta.download_path)
+                    self.logger.info(f"Deleted dataset directory: {meta.download_path}")
+                
+                # Store provider directory for later cleanup
+                provider_dirs.add(meta.download_path.parent)
+                
+                # Remove from metadata
+                del self.datasets[key]
+                
+            except Exception as e:
+                self.logger.error(f"Error deleting dataset {key}: {str(e)}")
+                success = False
+        
+        # Save metadata after all deletions
+        if success:
+            self._save_metadata()
+            
+            # Clean up empty provider directories
+            for provider_dir in provider_dirs:
+                self._cleanup_empty_provider_dir(provider_dir)
+            
+        return success
 
 if __name__ == "__main__":
     try:
