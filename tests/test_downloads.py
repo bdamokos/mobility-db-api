@@ -444,7 +444,10 @@ def test_dataset_update_with_new_hash(monkeypatch):
                 }
             }).encode()
         else:  # Dataset download request
-            response._content = old_content if not return_new_version else new_content
+            zip_buffer = io.BytesIO()
+            with zipfile.ZipFile(zip_buffer, 'w') as zip_file:
+                zip_file.writestr('test.txt', old_content if not return_new_version else new_content)
+            response._content = zip_buffer.getvalue()
         return response
 
     def mock_post(*args, **kwargs):
@@ -626,7 +629,7 @@ def test_real_dataset_update():
             assert len(datasets) == 1, "Should have exactly one dataset"
             metadata = datasets[0]
             assert metadata.provider_id == dataset_a_id, "Provider ID mismatch"
-            assert metadata.hash == 'updated_hash_value', "Hash not updated"
+            assert metadata.api_provided_hash == 'updated_hash_value', "Hash not updated"
             assert metadata.dataset_id == 'mdb-2036-202408190034', "Dataset ID not updated"
             assert metadata.download_path == second_path, "Download path mismatch"
             print("✓ Metadata updated correctly")
