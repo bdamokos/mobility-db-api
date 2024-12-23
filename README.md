@@ -138,6 +138,28 @@ Deletes a downloaded dataset:
 - `dataset_id`: Optional specific dataset ID. If not provided, deletes the latest dataset
 - Returns: True if the dataset was deleted, False if it wasn't found or couldn't be deleted
 
+#### Delete All Provider Datasets
+
+```python
+success = api.delete_provider_datasets(provider_id="tld-5862")
+```
+
+Deletes all downloaded datasets for a specific provider:
+- `provider_id`: The unique identifier of the provider whose datasets should be deleted
+- Returns: True if all datasets were deleted successfully, False if any deletion failed
+- Note: Provider directory is removed only if it contains no custom files
+
+#### Delete All Datasets
+
+```python
+success = api.delete_all_datasets()
+```
+
+Deletes all downloaded datasets across all providers:
+- Returns: True if all datasets were deleted successfully, False if any deletion failed
+- Note: Only dataset directories are removed, custom files and the main data directory are preserved
+- Empty provider directories are automatically cleaned up
+
 ## Examples
 
 ### Basic Usage
@@ -172,9 +194,15 @@ for dataset in datasets:
     print(f"Location: {dataset.download_path}")
     print()
 
-# Delete a specific dataset
+# Delete specific datasets
 api.delete_dataset("tld-5862")  # Delete latest dataset from Volánbusz
 api.delete_dataset("tld-5862", "specific_dataset_id")  # Delete specific dataset
+
+# Delete all datasets for a provider
+api.delete_provider_datasets("tld-5862")  # Delete all Volánbusz datasets
+
+# Delete all datasets
+api.delete_all_datasets()  # Delete all downloaded datasets
 ```
 
 ### Custom Download Directory
