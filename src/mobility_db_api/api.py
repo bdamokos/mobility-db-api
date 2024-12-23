@@ -338,31 +338,37 @@ class MobilityAPI:
             # Check if we already have this dataset
             dataset_key = f"{provider_id}_{latest_dataset['id']}"
             old_dataset_id = None
-            if dataset_key in self.datasets:
-                existing = self.datasets[dataset_key]
-                if existing.is_direct_source == is_direct:
-                    if api_hash and api_hash == existing.api_provided_hash:
-                        self.logger.info(f"Dataset {dataset_key} already exists and hash matches")
-                        return existing.download_path
-                    elif not api_hash and existing.download_path.exists():
-                        # For direct source, download and compare file hash
-                        self.logger.info("Checking if direct source dataset has changed...")
-                        temp_file = provider_dir / f"temp_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
-                        start_time = time.time()
-                        response = requests.get(download_url)
-                        download_time = time.time() - start_time
-                        if response.status_code == 200:
-                            with open(temp_file, 'wb') as f:
-                                f.write(response.content)
-                            new_hash = self._calculate_file_hash(temp_file)
-                            if new_hash == existing.file_hash:
+            old_dataset_path = None
+            
+            # Find any existing dataset for this provider
+            for key, meta in list(self.datasets.items()):
+                if meta.provider_id == provider_id:
+                    if dataset_key == key and meta.is_direct_source == is_direct:
+                        if api_hash and api_hash == meta.api_provided_hash:
+                            self.logger.info(f"Dataset {dataset_key} already exists and hash matches")
+                            return meta.download_path
+                        elif not api_hash and meta.download_path.exists():
+                            # For direct source, download and compare file hash
+                            self.logger.info("Checking if direct source dataset has changed...")
+                            temp_file = provider_dir / f"temp_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+                            start_time = time.time()
+                            response = requests.get(download_url)
+                            download_time = time.time() - start_time
+                            if response.status_code == 200:
+                                with open(temp_file, 'wb') as f:
+                                    f.write(response.content)
+                                new_hash = self._calculate_file_hash(temp_file)
+                                if new_hash == meta.file_hash:
+                                    temp_file.unlink()
+                                    self.logger.info(f"Dataset {dataset_key} already exists and content matches")
+                                    return meta.download_path
+                                # If hash different, continue with new download
                                 temp_file.unlink()
-                                self.logger.info(f"Dataset {dataset_key} already exists and content matches")
-                                return existing.download_path
-                            # If hash different, continue with new download
-                            temp_file.unlink()
-                # Store the old dataset ID for later cleanup
-                old_dataset_id = existing.dataset_id
+                    # Store the old dataset info for later cleanup
+                    old_dataset_id = meta.dataset_id
+                    old_dataset_path = meta.download_path
+                    # Remove old dataset from metadata now
+                    del self.datasets[key]
             
             # Download dataset
             self.logger.info(f"Downloading dataset from {download_url}")
@@ -427,9 +433,9 @@ class MobilityAPI:
                 self._save_metadata(base_dir)  # Save to custom directory metadata file
             
             # Clean up old dataset if it exists
-            if old_dataset_id:
+            if old_dataset_path and old_dataset_path.exists():
                 self.logger.info(f"Cleaning up old dataset {old_dataset_id}...")
-                self.delete_dataset(provider_id, old_dataset_id)
+                shutil.rmtree(old_dataset_path)
             
             return extract_dir
         except requests.exceptions.RequestException as e:
