@@ -337,6 +337,7 @@ class MobilityAPI:
             
             # Check if we already have this dataset
             dataset_key = f"{provider_id}_{latest_dataset['id']}"
+            old_dataset_id = None
             if dataset_key in self.datasets:
                 existing = self.datasets[dataset_key]
                 if existing.is_direct_source == is_direct:
@@ -360,6 +361,8 @@ class MobilityAPI:
                                 return existing.download_path
                             # If hash different, continue with new download
                             temp_file.unlink()
+                # Store the old dataset ID for later cleanup
+                old_dataset_id = existing.dataset_id
             
             # Download dataset
             self.logger.info(f"Downloading dataset from {download_url}")
@@ -422,6 +425,11 @@ class MobilityAPI:
             self._save_metadata()  # Save to main metadata file
             if download_dir:
                 self._save_metadata(base_dir)  # Save to custom directory metadata file
+            
+            # Clean up old dataset if it exists
+            if old_dataset_id:
+                self.logger.info(f"Cleaning up old dataset {old_dataset_id}...")
+                self.delete_dataset(provider_id, old_dataset_id)
             
             return extract_dir
         except requests.exceptions.RequestException as e:
