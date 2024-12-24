@@ -1,0 +1,72 @@
+site_name: Mobility Database API Client
+site_description: A Python client for downloading GTFS files through the Mobility Database API
+repo_url: https://github.com/bdamokos/mobility-db-api
+repo_name: bdamokos/mobility-db-api
+
+theme:
+  name: material
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.highlight
+    - search.share
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+plugins:
+  - search
+  - autorefs
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            show_source: true
+            show_root_heading: true
+            show_category_heading: true
+            show_bases: true
+            docstring_style: google
+            show_if_no_docstring: true
+            filters: ["!^_"]
+            merge_init_into_class: true
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - admonition
+  - pymdownx.details
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Quick Start: quickstart.md
+  - API Reference:
+    - Client: api-reference/client.md
+    - Metadata: api-reference/metadata.md
+  - Examples: examples.md
+  - Contributing: contributing.md
+  - Changelog: changelog.md 
