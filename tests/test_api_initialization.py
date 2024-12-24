@@ -201,6 +201,9 @@ def test_metadata_change_detection(test_dirs):
     assert len(api1.datasets) == 1
     assert "test_dataset_1" in api1.datasets
     
+    # Add a small delay to ensure different modification times
+    time.sleep(0.1)
+    
     # Write new metadata from a different process
     write_metadata_process(data_dir, "2")
     
