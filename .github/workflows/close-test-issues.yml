@@ -110,19 +110,22 @@ jobs:
                 
                 // Close if test is passing in any version or if test no longer exists
                 if (!testOutcome || testOutcome.passed) {
-                  await github.rest.issues.update({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    issue_number: issue.number,
-                    state: 'closed'
-                  });
-                  
                   const closeReason = !testOutcome ? 'Test was removed' : 'Test passed';
+                  
+                  // Add comment first
                   await github.rest.issues.createComment({
                     owner: context.repo.owner,
                     repo: context.repo.repo,
                     issue_number: issue.number,
                     body: `${closeReason} in commit ${context.sha}`
+                  });
+                  
+                  // Then close the issue
+                  await github.rest.issues.update({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: issue.number,
+                    state: 'closed'
                   });
                 }
               }
