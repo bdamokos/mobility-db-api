@@ -260,4 +260,8 @@ def test_concurrent_reads(test_dirs):
     # Wait for all processes to complete
     for p in processes:
         p.join()
-        assert p.exitcode == 0  # Verify each process completed successfully 
+        assert p.exitcode == 0  # Verify each process completed successfully
+
+def test_intentionally_failing():
+    """This test is intentionally failing to test the issue management workflows"""
+    assert False, "This test is intentionally failing to test the issue management workflows" 

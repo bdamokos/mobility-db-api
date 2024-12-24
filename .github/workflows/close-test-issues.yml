@@ -1,0 +1,93 @@
+name: Close Test Issues
+
+on:
+  workflow_run:
+    workflows: ["Tests"]
+    types:
+      - completed
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  close-test-issues:
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'success'
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Get test results
+        id: test-results
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          workflow: tests.yml
+          run_id: ${{ github.event.workflow_run.id }}
+          name: pytest-results
+          path: test-results
+        continue-on-error: true
+
+      - name: Process test results
+        if: steps.test-results.outcome == 'success'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            
+            try {
+              const resultsPath = path.join(process.env.GITHUB_WORKSPACE, 'test-results', 'results.json');
+              if (!fs.existsSync(resultsPath)) {
+                console.log('No test results file found');
+                return;
+              }
+
+              // Read test results
+              const results = JSON.parse(fs.readFileSync(resultsPath, 'utf8'));
+              if (!results.tests || !Array.isArray(results.tests)) {
+                console.log('Invalid test results format');
+                return;
+              }
+              
+              // Get list of all test nodeids
+              const testNodeIds = results.tests.map(test => test.nodeid);
+              
+              // Get open test failure issues
+              const issues = await github.rest.issues.listForRepo({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'open',
+                labels: ['tests']
+              });
+              
+              // Close issues for tests that are now passing
+              for (const issue of issues.data) {
+                const testLabels = issue.labels
+                  .map(l => l.name)
+                  .filter(name => name !== 'tests');
+                
+                if (testLabels.length === 0) continue;
+                
+                const testNodeId = testLabels[0];
+                const test = results.tests.find(t => t.nodeid === testNodeId);
+                
+                if (test && test.outcome === 'passed') {
+                  await github.rest.issues.update({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: issue.number,
+                    state: 'closed'
+                  });
+                  
+                  await github.rest.issues.createComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: issue.number,
+                    body: `Test passed in commit ${context.sha}`
+                  });
+                }
+              }
+            } catch (error) {
+              console.error('Error processing test results:', error);
+              core.setFailed(error.message);
+            } 

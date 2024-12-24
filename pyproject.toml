@@ -40,6 +40,7 @@ packages = ["mobility_db_api"]
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",  # For coverage reporting
+    "pytest-json-report>=1.5.0",  # For JSON test results
     "black>=23.0.0",      # For code formatting
     "isort>=5.0.0",       # For import sorting
 ]

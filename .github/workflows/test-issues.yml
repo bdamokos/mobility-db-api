@@ -1,0 +1,107 @@
+name: Test Issue Management
+
+on:
+  workflow_run:
+    workflows: ["Tests"]
+    types:
+      - completed
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  manage-test-issues:
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'failure'
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Get test results
+        id: test-results
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          workflow: tests.yml
+          run_id: ${{ github.event.workflow_run.id }}
+          name: pytest-results
+          path: test-results
+        continue-on-error: true
+
+      - name: Process test results
+        if: steps.test-results.outcome == 'success'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            
+            try {
+              const resultsPath = path.join(process.env.GITHUB_WORKSPACE, 'test-results', 'results.json');
+              if (!fs.existsSync(resultsPath)) {
+                console.log('No test results file found');
+                return;
+              }
+
+              // Read test results
+              const results = JSON.parse(fs.readFileSync(resultsPath, 'utf8'));
+              if (!results.tests || !Array.isArray(results.tests)) {
+                console.log('Invalid test results format');
+                return;
+              }
+              
+              // Process each failed test
+              for (const test of results.tests) {
+                if (test.outcome !== 'failed') continue;
+                
+                const testName = `${test.nodeid}`;
+                const errorMessage = test.call?.longrepr || 'No error message available';
+                
+                // Search for existing issues
+                const issues = await github.rest.issues.listForRepo({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  state: 'all',
+                  labels: ['tests', testName]
+                });
+                
+                if (issues.data.length > 0) {
+                  // Issue exists, reopen if closed
+                  const issue = issues.data[0];
+                  if (issue.state === 'closed') {
+                    await github.rest.issues.update({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      issue_number: issue.number,
+                      state: 'open'
+                    });
+                    
+                    await github.rest.issues.createComment({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      issue_number: issue.number,
+                      body: `Test failed again in commit ${context.sha}\n\nError message:\n\`\`\`\n${errorMessage}\n\`\`\``
+                    });
+                  } else {
+                    // Issue is already open, just add a comment about the new failure
+                    await github.rest.issues.createComment({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      issue_number: issue.number,
+                      body: `Test failed again in commit ${context.sha}\n\nError message:\n\`\`\`\n${errorMessage}\n\`\`\``
+                    });
+                  }
+                } else {
+                  // Create new issue
+                  await github.rest.issues.create({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    title: `Test Failure: ${testName}`,
+                    body: `Test failed in commit ${context.sha}\n\nError message:\n\`\`\`\n${errorMessage}\n\`\`\``,
+                    labels: ['tests', testName]
+                  });
+                }
+              }
+            } catch (error) {
+              console.error('Error processing test results:', error);
+              core.setFailed(error.message);
+            } 
