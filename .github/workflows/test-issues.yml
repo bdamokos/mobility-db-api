@@ -79,15 +79,16 @@ jobs:
                       issue_number: existingIssue.number,
                       state: 'open'
                     });
+                    
+                    // Add comment only when reopening
+                    await github.rest.issues.createComment({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      issue_number: existingIssue.number,
+                      body: `Test failed again in commit ${context.sha}\n\nFull test name: ${testName}\n\nError message:\n\`\`\`\n${errorMessage}\n\`\`\``
+                    });
                   }
-                  
-                  // Add comment about the new failure
-                  await github.rest.issues.createComment({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    issue_number: existingIssue.number,
-                    body: `Test failed again in commit ${context.sha}\n\nFull test name: ${testName}\n\nError message:\n\`\`\`\n${errorMessage}\n\`\`\``
-                  });
+                  // No comment if issue is already open
                 } else {
                   // Create new issue
                   await github.rest.issues.create({
