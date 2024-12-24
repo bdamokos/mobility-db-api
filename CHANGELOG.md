@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Added
+- Thread-safe and process-safe metadata handling:
+  - File locking for concurrent metadata access
+  - Shared locks for reading (multiple readers allowed)
+  - Exclusive locks for writing (one writer at a time)
+  - Automatic metadata merging for concurrent writes
+- Metadata change detection:
+  - Automatic detection of external changes to metadata file
+  - `reload_metadata()` method to manually reload metadata
+  - `ensure_metadata_current()` method to check and reload if needed
+- Improved error handling:
+  - Graceful handling of corrupted metadata files
+  - Proper cleanup of file locks
+  - Informative error logging
+
+### Changed
+- Made API instances fully independent:
+  - Each instance can have its own data directory
+  - Separate logger instances for better debugging
+  - Safe concurrent access to shared data directories
+
 ## [0.2.0] - 2024-12-23
 
 ### Added
