@@ -4,6 +4,7 @@ import json
 import hashlib
 import csv
 import time
+import fcntl
 from pathlib import Path
 from typing import Optional, List, Dict, Tuple
 from dataclasses import dataclass
@@ -32,6 +33,22 @@ class DatasetMetadata:
     feed_start_date: Optional[str] = None
     feed_end_date: Optional[str] = None
 
+class MetadataLock:
+    """Context manager for safely reading/writing metadata file"""
+    def __init__(self, metadata_file: Path, mode: str):
+        self.file = open(metadata_file, mode)
+        self.mode = mode
+    
+    def __enter__(self):
+        # Use exclusive lock for writing, shared lock for reading
+        fcntl.flock(self.file.fileno(), 
+                   fcntl.LOCK_EX if 'w' in self.mode else fcntl.LOCK_SH)
+        return self.file
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        fcntl.flock(self.file.fileno(), fcntl.LOCK_UN)
+        self.file.close()
+
 class MobilityAPI:
     """A client for interacting with the Mobility Database API.
 
@@ -45,9 +62,12 @@ class MobilityAPI:
         datasets (Dict): Dictionary of downloaded dataset metadata
 
     Example:
-        >>> api = MobilityAPI()
+        >>> api = MobilityAPI(data_dir="data/provider1")
         >>> providers = api.get_providers_by_country("HU")
         >>> dataset_path = api.download_latest_dataset("tld-5862")
+        
+        # Can create another instance with different configuration
+        >>> api2 = MobilityAPI(data_dir="data/provider2")
     """
     
     def __init__(self, data_dir: str = "data", refresh_token: Optional[str] = None,
@@ -60,9 +80,10 @@ class MobilityAPI:
             refresh_token: Optional refresh token. If not provided, will try to load from .env file
             log_level: Logging level (DEBUG, INFO, WARNING, ERROR). Defaults to INFO.
             logger_name: Name for the logger instance. Defaults to 'mobility_db_api'.
+                        Consider using a unique name per instance if running multiple instances.
         """
-        # Set up logger
-        self.logger = setup_logger(name=logger_name, level=log_level)
+        # Set up logger with instance-specific name if needed
+        self.logger = setup_logger(name=f"{logger_name}_{data_dir}", level=log_level)
         self.logger.debug("Initializing MobilityAPI client")
 
         self.base_url = "https://api.mobilitydatabase.org/v1"
@@ -70,6 +91,7 @@ class MobilityAPI:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.metadata_file = self.data_dir / "datasets_metadata.json"
         self.refresh_token = refresh_token
+        self._last_metadata_mtime = None
         self._load_metadata()
         
         self.logger.info(f"Initialized client with data directory: {self.data_dir}")
@@ -80,30 +102,53 @@ class MobilityAPI:
             return self.metadata_file
         return base_dir / "datasets_metadata.json"
 
+    def _get_metadata_mtime(self) -> Optional[float]:
+        """Get the last modification time of the metadata file"""
+        try:
+            return self.metadata_file.stat().st_mtime if self.metadata_file.exists() else None
+        except OSError:
+            return None
+
+    def _has_metadata_changed(self) -> bool:
+        """Check if the metadata file has been modified since last load"""
+        current_mtime = self._get_metadata_mtime()
+        if current_mtime is None:
+            return False
+        if self._last_metadata_mtime is None:
+            return True
+        return current_mtime > self._last_metadata_mtime
+
     def _load_metadata(self):
-        """Load existing metadata from file"""
+        """Load existing metadata from file with file locking"""
         self.datasets: Dict[str, DatasetMetadata] = {}
         if self.metadata_file.exists():
-            with open(self.metadata_file, 'r') as f:
-                data = json.load(f)
-                for key, item in data.items():
-                    self.datasets[key] = DatasetMetadata(
-                        provider_id=item['provider_id'],
-                        provider_name=item.get('provider_name', 'Unknown Provider'),
-                        dataset_id=item['dataset_id'],
-                        download_date=datetime.fromisoformat(item['download_date']),
-                        source_url=item['source_url'],
-                        is_direct_source=item['is_direct_source'],
-                        api_provided_hash=item.get('api_provided_hash'),
-                        file_hash=item['file_hash'],
-                        download_path=Path(item['download_path']),
-                        feed_start_date=item.get('feed_start_date'),
-                        feed_end_date=item.get('feed_end_date')
-                    )
+            try:
+                with MetadataLock(self.metadata_file, 'r') as f:
+                    data = json.load(f)
+                    for key, item in data.items():
+                        self.datasets[key] = DatasetMetadata(
+                            provider_id=item['provider_id'],
+                            provider_name=item.get('provider_name', 'Unknown Provider'),
+                            dataset_id=item['dataset_id'],
+                            download_date=datetime.fromisoformat(item['download_date']),
+                            source_url=item['source_url'],
+                            is_direct_source=item['is_direct_source'],
+                            api_provided_hash=item.get('api_provided_hash'),
+                            file_hash=item['file_hash'],
+                            download_path=Path(item['download_path']),
+                            feed_start_date=item.get('feed_start_date'),
+                            feed_end_date=item.get('feed_end_date')
+                        )
+                    # Update last modification time after successful load
+                    self._last_metadata_mtime = self._get_metadata_mtime()
+            except (json.JSONDecodeError, KeyError) as e:
+                self.logger.error(f"Error loading metadata: {str(e)}")
+                self.datasets = {}
+                self._last_metadata_mtime = None
 
     def _save_metadata(self, base_dir: Optional[Path] = None):
         """
-        Save current metadata to file.
+        Save current metadata to file with file locking.
         If base_dir is provided, saves metadata to that directory instead of the default.
         """
         metadata_file = self._get_metadata_file(base_dir)
@@ -114,25 +159,71 @@ class MobilityAPI:
             if base_dir is None or str(meta.download_path).startswith(str(base_dir))
         }
         
-        data = {
-            key: {
-                'provider_id': meta.provider_id,
-                'provider_name': meta.provider_name,
-                'dataset_id': meta.dataset_id,
-                'download_date': meta.download_date.isoformat(),
-                'source_url': meta.source_url,
-                'is_direct_source': meta.is_direct_source,
-                'api_provided_hash': meta.api_provided_hash,
-                'file_hash': meta.file_hash,
-                'download_path': str(meta.download_path),
-                'feed_start_date': meta.feed_start_date,
-                'feed_end_date': meta.feed_end_date
-            }
-            for key, meta in target_datasets.items()
-        }
+        try:
+            # First read existing metadata with shared lock
+            existing_data = {}
+            if metadata_file.exists():
+                with MetadataLock(metadata_file, 'r') as f:
+                    try:
+                        existing_data = json.load(f)
+                    except json.JSONDecodeError:
+                        self.logger.warning("Could not read existing metadata, will overwrite")
+            
+            # Merge new data with existing data
+            data = existing_data.copy()
+            data.update({
+                key: {
+                    'provider_id': meta.provider_id,
+                    'provider_name': meta.provider_name,
+                    'dataset_id': meta.dataset_id,
+                    'download_date': meta.download_date.isoformat(),
+                    'source_url': meta.source_url,
+                    'is_direct_source': meta.is_direct_source,
+                    'api_provided_hash': meta.api_provided_hash,
+                    'file_hash': meta.file_hash,
+                    'download_path': str(meta.download_path),
+                    'feed_start_date': meta.feed_start_date,
+                    'feed_end_date': meta.feed_end_date
+                }
+                for key, meta in target_datasets.items()
+            })
+            
+            # Write merged data with exclusive lock
+            with MetadataLock(metadata_file, 'w') as f:
+                json.dump(data, f, indent=2)
+            
+            # Update last modification time after successful save
+            if base_dir is None:
+                self._last_metadata_mtime = self._get_metadata_mtime()
+        except IOError as e:
+            self.logger.error(f"Error saving metadata: {str(e)}")
+
+    def reload_metadata(self, force: bool = False):
+        """
+        Reload metadata from file if it has been modified or if forced.
         
-        with open(metadata_file, 'w') as f:
-            json.dump(data, f, indent=2)
+        Args:
+            force: If True, reload metadata regardless of modification time.
+                  If False, only reload if the file has been modified.
+        
+        Returns:
+            bool: True if metadata was reloaded, False if no reload was needed
+        """
+        if force or self._has_metadata_changed():
+            self._load_metadata()
+            return True
+        return False
+
+    def ensure_metadata_current(self) -> bool:
+        """
+        Ensure the in-memory metadata is current with the file.
+        This is a convenience method that should be called before
+        any operation that reads from the metadata.
+        
+        Returns:
+            bool: True if metadata was reloaded, False if no reload was needed
+        """
+        return self.reload_metadata(force=False)
 
     def get_access_token(self) -> Optional[str]:
         """Get a valid access token for API authentication.

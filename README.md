@@ -48,7 +48,8 @@ dataset_path = api.download_latest_dataset("tld-5862")  # Volánbusz
 
 - Search providers by country or name
 - Download GTFS datasets from hosted or direct sources
-- Automatic metadata tracking
+- Automatic metadata tracking and change detection
+- Thread-safe and process-safe metadata handling
 - Environment variable support for API tokens
 - Progress tracking for downloads
 - Feed validity period detection
@@ -59,11 +60,18 @@ dataset_path = api.download_latest_dataset("tld-5862")  # Volánbusz
 ### Initialization
 
 ```python
-api = MobilityAPI(data_dir=None, refresh_token=None)
+api = MobilityAPI(
+    data_dir=None,
+    refresh_token=None,
+    log_level="INFO",
+    logger_name="mobility_db_api"
+)
 ```
 
 - `data_dir`: Optional directory path where datasets will be stored. Defaults to './mobility_datasets'
 - `refresh_token`: Optional API refresh token. If not provided, will be read from MOBILITY_API_REFRESH_TOKEN environment variable
+- `log_level`: Logging level (DEBUG, INFO, WARNING, ERROR). Defaults to INFO
+- `logger_name`: Name for the logger instance. Defaults to 'mobility_db_api'
 
 ### Provider Search
 
@@ -124,6 +132,23 @@ Returns a list of `DatasetMetadata` objects containing:
 - `feed_start_date`: Start date of feed validity
 - `feed_end_date`: End date of feed validity
 
+#### Metadata Management
+
+```python
+# Check if metadata has changed
+if api.ensure_metadata_current():
+    print("Metadata was reloaded")
+
+# Force reload metadata
+api.reload_metadata(force=True)
+```
+
+The API automatically handles metadata changes:
+- Detects when metadata file has been modified by other processes
+- Uses file locking for thread-safe and process-safe access
+- Merges changes when multiple processes write simultaneously
+- Handles corrupted metadata files gracefully
+
 #### Delete Dataset
 
 ```python
@@ -176,6 +201,24 @@ bkk_providers = api.get_providers_by_name("BKK")
 
 # Download latest dataset
 dataset_path = api.download_latest_dataset("tld-5862")
+```
+
+### Multiple Instances and Concurrent Access
+
+```python
+from mobility_db_api import MobilityAPI
+
+# Create instances with different data directories
+api1 = MobilityAPI(data_dir="data1", logger_name="api1")
+api2 = MobilityAPI(data_dir="data2", logger_name="api2")
+
+# Or share the same directory safely
+api3 = MobilityAPI(data_dir="shared", logger_name="api3")
+api4 = MobilityAPI(data_dir="shared", logger_name="api4")
+
+# Changes made by one instance are visible to others
+api3.download_latest_dataset("tld-5862")
+api4.ensure_metadata_current()  # Will detect and load changes
 ```
 
 ### Dataset Management
