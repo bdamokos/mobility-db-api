@@ -62,14 +62,14 @@ jobs:
               
               // Close issues for tests that are now passing
               for (const issue of issues.data) {
-                const testLabels = issue.labels
-                  .map(l => l.name)
-                  .filter(name => name !== 'tests');
+                // Extract test name from issue title
+                const match = issue.title.match(/^Test Failure: (.+)$/);
+                if (!match) continue;
                 
-                if (testLabels.length === 0) continue;
+                const shortTestName = match[1];
                 
-                const testNodeId = testLabels[0];
-                const test = results.tests.find(t => t.nodeid === testNodeId);
+                // Find corresponding test in results
+                const test = results.tests.find(t => t.nodeid.split('::').pop() === shortTestName);
                 
                 if (test && test.outcome === 'passed') {
                   await github.rest.issues.update({
