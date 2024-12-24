@@ -195,6 +195,10 @@ class MobilityAPI:
             # Update last modification time after successful save
             if base_dir is None:
                 self._last_metadata_mtime = self._get_metadata_mtime()
+            else:
+                # If saving to a different directory, update mtime if it's our main metadata file
+                if metadata_file == self.metadata_file:
+                    self._last_metadata_mtime = self._get_metadata_mtime()
         except IOError as e:
             self.logger.error(f"Error saving metadata: {str(e)}")
 
