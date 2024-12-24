@@ -60,7 +60,7 @@ jobs:
                 labels: ['tests']
               });
               
-              // Close issues for tests that are now passing
+              // Close issues for tests that are now passing or no longer exist
               for (const issue of issues.data) {
                 // Extract test name from issue title
                 const match = issue.title.match(/^Test Failure: (.+)$/);
@@ -71,7 +71,8 @@ jobs:
                 // Find corresponding test in results
                 const test = results.tests.find(t => t.nodeid.split('::').pop() === shortTestName);
                 
-                if (test && test.outcome === 'passed') {
+                // Close if test is passing or if test no longer exists
+                if (!test || test.outcome === 'passed') {
                   await github.rest.issues.update({
                     owner: context.repo.owner,
                     repo: context.repo.repo,
@@ -79,11 +80,12 @@ jobs:
                     state: 'closed'
                   });
                   
+                  const closeReason = test ? 'Test passed' : 'Test was removed';
                   await github.rest.issues.createComment({
                     owner: context.repo.owner,
                     repo: context.repo.repo,
                     issue_number: issue.number,
-                    body: `Test passed in commit ${context.sha}`
+                    body: `${closeReason} in commit ${context.sha}`
                   });
                 }
               }
