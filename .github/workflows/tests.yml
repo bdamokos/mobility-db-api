@@ -35,12 +35,22 @@ jobs:
         python -m pip install --upgrade pip
         pip install -e ".[dev]"
     
+    - name: Create results directory
+      run: mkdir -p pytest-results
+    
     - name: Run tests
       run: |
-        pytest tests/ --cov=mobility_db_api --cov-report=xml
+        pytest tests/ --cov=mobility_db_api --cov-report=xml --json-report --json-report-file=pytest-results/results.json
     
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@v5
       with:
           token: ${{ secrets.CODECOV_TOKEN }}
           slug: bdamokos/mobility-db-api
+
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: pytest-results
+        path: pytest-results/results.json
