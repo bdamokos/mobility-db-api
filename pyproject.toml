@@ -11,6 +11,16 @@ authors = [
 description = "A Python client for the Mobility Database API"
 readme = "README.md"
 requires-python = ">=3.7"
+keywords = [
+    "gtfs",
+    "public-transport",
+    "mobility",
+    "transit",
+    "open-data",
+    "transportation",
+    "api-client",
+    "mobility-database"
+]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -27,6 +37,7 @@ dependencies = [
 [project.urls]
 "Homepage" = "https://github.com/bdamokos/mobility-db-api"
 "Bug Tracker" = "https://github.com/bdamokos/mobility-db-api/issues"
+"Documentation" = "https://bdamokos.github.io/mobility-db-api/"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
