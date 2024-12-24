@@ -5,9 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## [0.3.0] - 2024-12-24
 
 ### Added
+- Comprehensive documentation site at https://bdamokos.github.io/mobility-db-api/
 - Thread-safe and process-safe metadata handling:
   - File locking for concurrent metadata access
   - Shared locks for reading (multiple readers allowed)
@@ -27,6 +28,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Each instance can have its own data directory
   - Separate logger instances for better debugging
   - Safe concurrent access to shared data directories
+- Fixed metadata change detection in multi-process scenarios
+
+### Developer Changes
+- Added automated test issue management
+- Added comprehensive test suite for concurrent operations
+- Improved GitHub Actions security with explicit permissions
+- Added documentation testing and validation workflows
 
 ## [0.2.0] - 2024-12-23
 
