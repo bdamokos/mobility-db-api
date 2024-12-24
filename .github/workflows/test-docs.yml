@@ -1,0 +1,84 @@
+name: Test Documentation
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - '.github/workflows/test-docs.yml'
+      - 'src/**/*.py'  # Python files might contain docstrings
+
+jobs:
+  test-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install mkdocs-material mkdocstrings[python] mkdocs-autorefs
+      
+      - name: Test documentation build
+        run: |
+          # Build documentation
+          mkdocs build --strict
+          
+          # Check for broken internal links
+          python -c '
+          import os
+          import re
+          import sys
+          
+          def check_internal_links():
+              errors = []
+              md_files = []
+              
+              # Find all markdown files
+              for root, _, files in os.walk("docs"):
+                  for file in files:
+                      if file.endswith(".md"):
+                          md_files.append(os.path.join(root, file))
+              
+              # Extract all internal links
+              for md_file in md_files:
+                  with open(md_file, "r") as f:
+                      content = f.read()
+                      
+                  # Find all markdown links
+                  links = re.findall(r"\[([^\]]+)\]\(([^)]+)\)", content)
+                  
+                  for text, link in links:
+                      # Skip external links and anchors
+                      if link.startswith(("http", "#", "mailto:")):
+                          continue
+                      
+                      # Convert link to file path
+                      if link.endswith("/"):
+                          link += "index.md"
+                      elif not link.endswith(".md"):
+                          link += ".md"
+                      
+                      # Handle relative paths
+                      if not link.startswith("/"):
+                          link = os.path.normpath(os.path.join(os.path.dirname(md_file), link))
+                      else:
+                          link = "docs" + link
+                      
+                      # Check if file exists
+                      if not os.path.exists(link):
+                          errors.append(f"Broken link in {md_file}: [{text}]({link})")
+              
+              if errors:
+                  print("\n".join(errors))
+                  sys.exit(1)
+          
+          check_internal_links()
+          ' 
