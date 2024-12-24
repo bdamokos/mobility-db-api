@@ -23,12 +23,32 @@ jobs:
         with:
           workflow: tests.yml
           run_id: ${{ github.event.workflow_run.id }}
-          name: pytest-results
-          path: test-results
+          name: pytest-results-3.11
+          path: test-results-3.11
+        continue-on-error: true
+
+      - name: Get test results (Python 3.12)
+        id: test-results-3-12
+        uses: dawidd6/action-download-artifact@bf251b5aa9c2f7eeb574a96ee720e24f801b7c11
+        with:
+          workflow: tests.yml
+          run_id: ${{ github.event.workflow_run.id }}
+          name: pytest-results-3.12
+          path: test-results-3.12
+        continue-on-error: true
+
+      - name: Get test results (Python 3.13)
+        id: test-results-3-13
+        uses: dawidd6/action-download-artifact@bf251b5aa9c2f7eeb574a96ee720e24f801b7c11
+        with:
+          workflow: tests.yml
+          run_id: ${{ github.event.workflow_run.id }}
+          name: pytest-results-3.13
+          path: test-results-3.13
         continue-on-error: true
 
       - name: Process test results
-        if: steps.test-results.outcome == 'success'
+        if: steps.test-results.outcome == 'success' || steps.test-results-3-12.outcome == 'success' || steps.test-results-3-13.outcome == 'success'
         uses: actions/github-script@v7
         with:
           script: |
@@ -36,27 +56,44 @@ jobs:
             const path = require('path');
             
             try {
-              const resultsPath = path.join(process.env.GITHUB_WORKSPACE, 'test-results', 'results.json');
-              if (!fs.existsSync(resultsPath)) {
-                console.log('No test results file found');
-                return;
-              }
+              // Process results from all Python versions
+              const versions = ['3.11', '3.12', '3.13'];
+              const allTests = new Set();
+              const failedTests = new Set();
+              
+              for (const version of versions) {
+                const resultsPath = path.join(process.env.GITHUB_WORKSPACE, `test-results-${version}`, 'results.json');
+                if (!fs.existsSync(resultsPath)) {
+                  console.log(`No test results found for Python ${version}`);
+                  continue;
+                }
 
-              // Read test results
-              const results = JSON.parse(fs.readFileSync(resultsPath, 'utf8'));
-              if (!results.tests || !Array.isArray(results.tests)) {
-                console.log('Invalid test results format');
-                return;
+                // Read test results
+                const results = JSON.parse(fs.readFileSync(resultsPath, 'utf8'));
+                if (!results.tests || !Array.isArray(results.tests)) {
+                  console.log(`Invalid test results format for Python ${version}`);
+                  continue;
+                }
+                
+                // Process each test
+                for (const test of results.tests) {
+                  const testName = `${test.nodeid}`;
+                  const shortTestName = testName.split('::').pop();
+                  allTests.add(shortTestName);
+                  
+                  if (test.outcome === 'failed') {
+                    failedTests.add({
+                      shortTestName,
+                      testName,
+                      errorMessage: test.call?.longrepr || 'No error message available',
+                      version
+                    });
+                  }
+                }
               }
               
-              // Process each failed test
-              for (const test of results.tests) {
-                if (test.outcome !== 'failed') continue;
-                
-                const testName = `${test.nodeid}`;
-                const errorMessage = test.call?.longrepr || 'No error message available';
-                const shortTestName = testName.split('::').pop();
-                
+              // Process failed tests
+              for (const failedTest of failedTests) {
                 // Search for existing issues
                 const issues = await github.rest.issues.listForRepo({
                   owner: context.repo.owner,
@@ -67,7 +104,7 @@ jobs:
                 
                 // Find issue with matching test name in title
                 const existingIssue = issues.data.find(issue => 
-                  issue.title === `Test Failure: ${shortTestName}`
+                  issue.title === `Test Failure: ${failedTest.shortTestName}`
                 );
                 
                 if (existingIssue) {
@@ -85,7 +122,7 @@ jobs:
                       owner: context.repo.owner,
                       repo: context.repo.repo,
                       issue_number: existingIssue.number,
-                      body: `Test failed again in commit ${context.sha}\n\nFull test name: ${testName}\n\nError message:\n\`\`\`\n${errorMessage}\n\`\`\``
+                      body: `Test failed again in commit ${context.sha} (Python ${failedTest.version})\n\nFull test name: ${failedTest.testName}\n\nError message:\n\`\`\`\n${failedTest.errorMessage}\n\`\`\``
                     });
                   }
                   // No comment if issue is already open
@@ -94,8 +131,8 @@ jobs:
                   await github.rest.issues.create({
                     owner: context.repo.owner,
                     repo: context.repo.repo,
-                    title: `Test Failure: ${shortTestName}`,
-                    body: `Test failed in commit ${context.sha}\n\nFull test name: ${testName}\n\nError message:\n\`\`\`\n${errorMessage}\n\`\`\``,
+                    title: `Test Failure: ${failedTest.shortTestName}`,
+                    body: `Test failed in commit ${context.sha} (Python ${failedTest.version})\n\nFull test name: ${failedTest.testName}\n\nError message:\n\`\`\`\n${failedTest.errorMessage}\n\`\`\``,
                     labels: ['tests']
                   });
                 }
