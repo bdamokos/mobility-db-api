@@ -19,7 +19,7 @@ jobs:
       
       - name: Get test results
         id: test-results
-        uses: dawidd6/action-download-artifact@v3
+        uses: dawidd6/action-download-artifact@v6
         with:
           workflow: tests.yml
           run_id: ${{ github.event.workflow_run.id }}
