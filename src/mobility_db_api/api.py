@@ -59,24 +59,24 @@ class MobilityAPI:
 
     The client can operate in two modes:
     1. API mode (default): Uses the Mobility Database API with authentication
-    2. CSV mode: Falls back to using the CSV catalog when no API key is provided
+    2. CSV mode: Uses the CSV catalog when no API key is provided or when force_csv_mode is True
 
     Attributes:
         data_dir (Path): Directory where downloaded datasets are stored
         refresh_token (str): Token used for API authentication
         datasets (Dict): Dictionary of downloaded dataset metadata
+        force_csv_mode (bool): If True, always use CSV catalog even if API key is available
 
     Example:
         >>> api = MobilityAPI(data_dir="data")  # Will try API first, fallback to CSV
+        >>> api_csv = MobilityAPI(force_csv_mode=True)  # Will always use CSV
         >>> providers = api.get_providers_by_country("HU")
         >>> dataset_path = api.download_latest_dataset("tld-5862")
-        
-        # Can create another instance with different configuration
-        >>> api2 = MobilityAPI(data_dir="data/provider2")
     """
     
     def __init__(self, data_dir: str = "data", refresh_token: Optional[str] = None,
-                 log_level: str = "INFO", logger_name: str = "mobility_db_api"):
+                 log_level: str = "INFO", logger_name: str = "mobility_db_api",
+                 force_csv_mode: bool = False):
         """
         Initialize the API client.
         
@@ -85,7 +85,7 @@ class MobilityAPI:
             refresh_token: Optional refresh token. If not provided, will try to load from .env file
             log_level: Logging level (DEBUG, INFO, WARNING, ERROR). Defaults to INFO.
             logger_name: Name for the logger instance. Defaults to 'mobility_db_api'.
-                        Consider using a unique name per instance if running multiple instances.
+            force_csv_mode: If True, always use CSV catalog even if API key is available.
         """
         # Set up logger with instance-specific name if needed
         self.logger = setup_logger(name=f"{logger_name}_{data_dir}", level=log_level)
@@ -99,16 +99,24 @@ class MobilityAPI:
         self._last_metadata_mtime = None
         self._load_metadata()
         
-        # Initialize CSV catalog for fallback
-        self.csv_catalog = CSVCatalog(cache_dir=str(self.data_dir / "csv_cache"))
-        self._use_csv = False  # Will be set to True if API auth fails
+        # CSV catalog is initialized lazily
+        self._csv_catalog = None
+        self.force_csv_mode = force_csv_mode
+        self._use_csv = force_csv_mode
         
-        self.logger.info(f"Initialized client with data directory: {self.data_dir}")
-        
-        # Try to get an access token, fallback to CSV if it fails
-        if not self.get_access_token():
-            self.logger.info("No valid API token found, falling back to CSV catalog")
-            self._use_csv = True
+        if not force_csv_mode:
+            # Try to get an access token, fallback to CSV if it fails
+            if not self.get_access_token():
+                self.logger.info("No valid API token found, falling back to CSV catalog")
+                self._use_csv = True
+
+    @property
+    def csv_catalog(self) -> CSVCatalog:
+        """Lazy initialization of CSV catalog."""
+        if self._csv_catalog is None:
+            self.logger.debug("Initializing CSV catalog")
+            self._csv_catalog = CSVCatalog(cache_dir=str(self.data_dir / "csv_cache"))
+        return self._csv_catalog
 
     def _get_metadata_file(self, base_dir: Optional[Path] = None) -> Path:
         """Get the appropriate metadata file path based on the base directory"""
@@ -250,18 +258,23 @@ class MobilityAPI:
         refresh token to obtain a new access token from the API.
 
         Returns:
-            A valid access token string if successful, None if token refresh fails.
+            A valid access token string if successful, None if token refresh fails
+            or if no refresh token is available.
 
         Example:
             >>> api = MobilityAPI()
             >>> token = api.get_access_token()
-            >>> print(token)
-            'eyJ0eXAiOiJKV1QiLCJhbGc...'
+            >>> if token:
+            ...     print(token)
+            ...     'eyJ0eXAiOiJKV1QiLCJhbGc...'
+            ... else:
+            ...     print("Using CSV fallback mode")
         """
         if not self.refresh_token:
             self.refresh_token = os.getenv("MOBILITY_API_REFRESH_TOKEN")
         if not self.refresh_token:
-            raise ValueError("No refresh token provided and none found in .env file")
+            self.logger.debug("No refresh token provided and none found in .env file")
+            return None
         
         url = f"{self.base_url}/tokens"
         headers = {"Content-Type": "application/json"}
@@ -278,10 +291,14 @@ class MobilityAPI:
             return None
 
     def _get_headers(self) -> Dict[str, str]:
-        """Get headers with access token for API requests"""
+        """Get headers with access token for API requests.
+        
+        Returns:
+            Dictionary of headers. If no token is available, returns empty headers.
+        """
         token = self.get_access_token()
         if not token:
-            raise ValueError("Failed to get access token")
+            return {}
         return {"Authorization": f"Bearer {token}"}
 
     def get_providers_by_country(self, country_code: str) -> List[Dict]:
@@ -427,15 +444,27 @@ class MobilityAPI:
             PosixPath('mobility_datasets/volanbus_20240315')
         """
         try:
-            # Get provider info
-            self.logger.info(f"Fetching provider info for {provider_id}")
-            url = f"{self.base_url}/gtfs_feeds/{provider_id}"
-            response = requests.get(url, headers=self._get_headers())
-            if response.status_code != 200:
-                self.logger.error(f"Failed to get provider info: {response.status_code}")
-                return None
+            # Get provider info based on mode
+            if self._use_csv:
+                # In CSV mode, get provider info from catalog
+                provider_data = self.csv_catalog.get_provider_info(provider_id)
+                if not provider_data:
+                    self.logger.error(f"Provider {provider_id} not found in CSV catalog")
+                    return None
+            else:
+                # In API mode, get provider info from the API
+                self.logger.info(f"Fetching provider info for {provider_id}")
+                url = f"{self.base_url}/gtfs_feeds/{provider_id}"
+                response = requests.get(url, headers=self._get_headers())
+                if response.status_code != 200:
+                    self.logger.error(f"Failed to get provider info: {response.status_code}")
+                    if response.status_code in (401, 403, 413):  # Auth errors or request too large
+                        self.logger.info("Falling back to CSV catalog")
+                        self._use_csv = True
+                        return self.download_latest_dataset(provider_id, download_dir, use_direct_source)
+                    return None
+                provider_data = response.json()
             
-            provider_data = response.json()
             provider_name = provider_data.get('provider', 'Unknown Provider')
             latest_dataset = provider_data.get('latest_dataset')
             

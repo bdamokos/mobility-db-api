@@ -135,3 +135,57 @@ class CSVCatalog:
         providers = self.get_providers()
         name_lower = name.lower()
         return [p for p in providers if name_lower in p['provider'].lower()] 
+    
+    def _normalize_provider_id(self, provider_id: str) -> str:
+        """Normalize provider ID to match CSV catalog format.
+        
+        Handles the following formats:
+        - "123" -> "123"
+        - "mdb-123" -> "123"
+        - Other formats (e.g., "tld-123") -> unchanged
+        
+        Args:
+            provider_id: The provider ID to normalize
+            
+        Returns:
+            Normalized provider ID for CSV catalog lookup
+        """
+        if provider_id.startswith("mdb-"):
+            return provider_id[4:]  # Remove "mdb-" prefix
+        if provider_id.isdigit():
+            return provider_id
+        return provider_id
+
+    def get_provider_info(self, provider_id: str) -> Optional[Dict]:
+        """Get information about a specific provider.
+        
+        Args:
+            provider_id: The unique identifier of the provider.
+                       Supports formats: "123", "mdb-123", or other prefixes.
+        
+        Returns:
+            Provider information dictionary if found, None otherwise.
+            The dictionary includes standardized fields matching the API response format:
+                - provider: Provider name
+                - source_info: Source information including direct download URL
+                - latest_dataset: Latest dataset information
+                - data_type: Type of data (e.g., 'gtfs')
+                - status: Provider status
+                - features: Provider features
+                - license_url: URL to the license information
+        """
+        normalized_id = self._normalize_provider_id(provider_id)
+        providers = self.get_providers()
+        provider = next((p for p in providers if p['id'] == normalized_id), None)
+        
+        if provider:
+            return {
+                'provider': provider['provider'],
+                'source_info': provider['source_info'],
+                'latest_dataset': provider['latest_dataset'],
+                'data_type': provider['data_type'],
+                'status': provider['status'],
+                'features': provider['features'],
+                'license_url': provider['license_url']
+            }
+        return None 
