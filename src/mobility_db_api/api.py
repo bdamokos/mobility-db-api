@@ -14,6 +14,7 @@ from unidecode import unidecode
 from dotenv import load_dotenv
 import shutil
 from .logger import setup_logger
+from .csv_catalog import CSVCatalog
 
 # Load environment variables
 load_dotenv()
@@ -56,13 +57,17 @@ class MobilityAPI:
     and manage downloaded data. It handles authentication, caching, and metadata
     tracking automatically.
 
+    The client can operate in two modes:
+    1. API mode (default): Uses the Mobility Database API with authentication
+    2. CSV mode: Falls back to using the CSV catalog when no API key is provided
+
     Attributes:
         data_dir (Path): Directory where downloaded datasets are stored
         refresh_token (str): Token used for API authentication
         datasets (Dict): Dictionary of downloaded dataset metadata
 
     Example:
-        >>> api = MobilityAPI(data_dir="data/provider1")
+        >>> api = MobilityAPI(data_dir="data")  # Will try API first, fallback to CSV
         >>> providers = api.get_providers_by_country("HU")
         >>> dataset_path = api.download_latest_dataset("tld-5862")
         
@@ -94,7 +99,16 @@ class MobilityAPI:
         self._last_metadata_mtime = None
         self._load_metadata()
         
+        # Initialize CSV catalog for fallback
+        self.csv_catalog = CSVCatalog(cache_dir=str(self.data_dir / "csv_cache"))
+        self._use_csv = False  # Will be set to True if API auth fails
+        
         self.logger.info(f"Initialized client with data directory: {self.data_dir}")
+        
+        # Try to get an access token, fallback to CSV if it fails
+        if not self.get_access_token():
+            self.logger.info("No valid API token found, falling back to CSV catalog")
+            self._use_csv = True
 
     def _get_metadata_file(self, base_dir: Optional[Path] = None) -> Path:
         """Get the appropriate metadata file path based on the base directory"""
@@ -291,6 +305,9 @@ class MobilityAPI:
             ...     print(f"{p['provider']}: {p['id']}")
             'BKK: o-u-dr_bkk'
         """
+        if self._use_csv:
+            return self.csv_catalog.get_providers_by_country(country_code)
+        
         url = f"{self.base_url}/gtfs_feeds"
         params = {"country_code": country_code.upper()}
         
@@ -300,17 +317,36 @@ class MobilityAPI:
                 return response.json()
             return []
         except requests.exceptions.RequestException:
-            return []
+            # If API request fails, try CSV fallback
+            self.logger.warning("API request failed, falling back to CSV catalog")
+            self._use_csv = True
+            return self.csv_catalog.get_providers_by_country(country_code)
 
     def get_providers_by_name(self, name: str) -> List[Dict]:
-        """Get providers matching a name (case-insensitive partial match)"""
+        """Search for providers by name.
+        
+        Args:
+            name: Provider name to search for (case-insensitive partial match)
+        
+        Returns:
+            List of matching provider dictionaries.
+        """
+        if self._use_csv:
+            return self.csv_catalog.get_providers_by_name(name)
+        
         url = f"{self.base_url}/gtfs_feeds"
         params = {"provider": name}
         
-        response = requests.get(url, headers=self._get_headers(), params=params)
-        if response.status_code == 200:
-            return response.json()
-        return []
+        try:
+            response = requests.get(url, headers=self._get_headers(), params=params)
+            if response.status_code == 200:
+                return response.json()
+            return []
+        except requests.exceptions.RequestException:
+            # If API request fails, try CSV fallback
+            self.logger.warning("API request failed, falling back to CSV catalog")
+            self._use_csv = True
+            return self.csv_catalog.get_providers_by_name(name)
 
     def _calculate_file_hash(self, file_path: Path) -> str:
         """Calculate SHA-256 hash of a file"""

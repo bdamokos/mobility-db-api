@@ -38,3 +38,5 @@ htmlcov/
 .pytest_cache/
 
 dev/
+sources.csv
+DEVELOPMENT.md
