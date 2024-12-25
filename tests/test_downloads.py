@@ -713,7 +713,7 @@ def test_selective_dataset_deletion():
         if Path(test_dir).exists():
             print("\nCleaning up test directory")
             shutil.rmtree(test_dir)
-            print("✓ Test directory cleaned up")
+            print("�� Test directory cleaned up")
 
 def test_delete_provider_datasets():
     """Test deleting all datasets for a specific provider."""
@@ -954,3 +954,30 @@ def test_directory_cleanup_behavior():
             print("\nCleaning up test directory")
             shutil.rmtree(base_dir)
             print("✓ Test directory cleaned up")
+
+def test_force_csv_mode():
+    """Test that force_csv_mode always uses CSV catalog"""
+    api = MobilityAPI(force_csv_mode=True)
+    
+    # Should use CSV catalog even with valid token
+    api.refresh_token = "valid_token"  # This would normally trigger API mode
+    assert api._use_csv is True
+    
+    # CSV catalog should not be initialized until needed
+    assert api._csv_catalog is None
+    
+    # Should initialize CSV catalog on first use
+    providers = api.get_providers_by_country("HU")
+    assert api._csv_catalog is not None
+
+def test_lazy_csv_initialization():
+    """Test that CSV catalog is only initialized when needed"""
+    api = MobilityAPI()
+    
+    # CSV catalog should not be initialized yet
+    assert api._csv_catalog is None
+    
+    # Should initialize when falling back to CSV mode
+    api.refresh_token = None  # Force CSV fallback
+    providers = api.get_providers_by_country("HU")
+    assert api._csv_catalog is not None
