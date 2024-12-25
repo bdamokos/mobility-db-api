@@ -182,36 +182,44 @@ class MobilityAPI:
         }
         
         try:
-            # First read existing metadata with shared lock
-            existing_data = {}
-            if metadata_file.exists():
-                with MetadataLock(metadata_file, 'r') as f:
-                    try:
-                        existing_data = json.load(f)
-                    except json.JSONDecodeError:
-                        self.logger.warning("Could not read existing metadata, will overwrite")
+            # Ensure the file exists before opening in r+ mode
+            if not metadata_file.exists():
+                metadata_file.touch()
             
-            # Merge new data with existing data
-            data = existing_data.copy()
-            data.update({
-                key: {
-                    'provider_id': meta.provider_id,
-                    'provider_name': meta.provider_name,
-                    'dataset_id': meta.dataset_id,
-                    'download_date': meta.download_date.isoformat(),
-                    'source_url': meta.source_url,
-                    'is_direct_source': meta.is_direct_source,
-                    'api_provided_hash': meta.api_provided_hash,
-                    'file_hash': meta.file_hash,
-                    'download_path': str(meta.download_path),
-                    'feed_start_date': meta.feed_start_date,
-                    'feed_end_date': meta.feed_end_date
-                }
-                for key, meta in target_datasets.items()
-            })
-            
-            # Write merged data with exclusive lock
-            with MetadataLock(metadata_file, 'w') as f:
+            # Use a single exclusive lock for both read and write
+            with MetadataLock(metadata_file, 'r+') as f:
+                # Read existing metadata
+                existing_data = {}
+                try:
+                    f.seek(0)
+                    content = f.read()
+                    if content:  # Only try to parse if file is not empty
+                        existing_data = json.loads(content)
+                except json.JSONDecodeError:
+                    self.logger.warning("Could not read existing metadata, will overwrite")
+                
+                # Merge new data with existing data
+                data = existing_data.copy()
+                data.update({
+                    key: {
+                        'provider_id': meta.provider_id,
+                        'provider_name': meta.provider_name,
+                        'dataset_id': meta.dataset_id,
+                        'download_date': meta.download_date.isoformat(),
+                        'source_url': meta.source_url,
+                        'is_direct_source': meta.is_direct_source,
+                        'api_provided_hash': meta.api_provided_hash,
+                        'file_hash': meta.file_hash,
+                        'download_path': str(meta.download_path),
+                        'feed_start_date': meta.feed_start_date,
+                        'feed_end_date': meta.feed_end_date
+                    }
+                    for key, meta in target_datasets.items()
+                })
+                
+                # Write merged data
+                f.seek(0)
+                f.truncate()
                 json.dump(data, f, indent=2)
             
             # Update last modification time after successful save
