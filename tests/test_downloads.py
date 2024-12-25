@@ -195,12 +195,14 @@ def test_network_error(monkeypatch):
     api = MobilityAPI()
     
     # Test provider search with network error
+    # Should fall back to CSV catalog and return providers
     providers = api.get_providers_by_country("HU")
-    assert len(providers) == 0
+    assert len(providers) > 0  # Should get providers from CSV
+    assert api._use_csv is True  # Should switch to CSV mode
     
     # Test dataset download with network error
     result = api.download_latest_dataset("tld-5862")
-    assert result is None
+    assert result is None  # Download should still fail
 
 def test_api_error(monkeypatch):
     """Test handling of API errors"""
@@ -713,7 +715,7 @@ def test_selective_dataset_deletion():
         if Path(test_dir).exists():
             print("\nCleaning up test directory")
             shutil.rmtree(test_dir)
-            print("�� Test directory cleaned up")
+            print("✓ Test directory cleaned up")
 
 def test_delete_provider_datasets():
     """Test deleting all datasets for a specific provider."""
@@ -977,7 +979,68 @@ def test_lazy_csv_initialization():
     # CSV catalog should not be initialized yet
     assert api._csv_catalog is None
     
-    # Should initialize when falling back to CSV mode
-    api.refresh_token = None  # Force CSV fallback
+    # Force CSV mode
+    api = MobilityAPI(force_csv_mode=True)
+    
+    # CSV catalog should still not be initialized
+    assert api._csv_catalog is None
+    
+    # Should initialize when first used
     providers = api.get_providers_by_country("HU")
     assert api._csv_catalog is not None
+    assert len(providers) > 0  # Should get actual providers
+
+def test_csv_initial_network_error(monkeypatch):
+    """Test handling of network errors during initial CSV download"""
+    def mock_get(*args, **kwargs):
+        # Simulate network error for all requests
+        raise requests.exceptions.ConnectionError("Network error")
+    
+    monkeypatch.setattr(requests, "get", mock_get)
+    
+    # Use a fresh directory to ensure no cached CSV
+    test_dir = "test_csv_network_error"
+    if Path(test_dir).exists():
+        shutil.rmtree(test_dir)
+    
+    try:
+        api = MobilityAPI(data_dir=test_dir, force_csv_mode=True)
+        
+        # Attempt to get providers should fail as we can't download CSV
+        providers = api.get_providers_by_country("HU")
+        assert len(providers) == 0, "Should return empty list when CSV download fails"
+        
+    finally:
+        if Path(test_dir).exists():
+            shutil.rmtree(test_dir)
+
+def test_csv_fallback_with_cached(monkeypatch):
+    """Test CSV fallback when network is down but CSV is already cached"""
+    # First, let's get a clean setup with CSV downloaded
+    test_dir = "test_csv_cached"
+    if Path(test_dir).exists():
+        shutil.rmtree(test_dir)
+    
+    try:
+        # First, download CSV normally
+        api = MobilityAPI(data_dir=test_dir, force_csv_mode=True)
+        initial_providers = api.get_providers_by_country("HU")
+        assert len(initial_providers) > 0, "Should get providers in initial download"
+        
+        # Now simulate network error
+        def mock_get(*args, **kwargs):
+            raise requests.exceptions.ConnectionError("Network error")
+        
+        monkeypatch.setattr(requests, "get", mock_get)
+        
+        # Create new API instance pointing to same directory
+        api_offline = MobilityAPI(data_dir=test_dir, force_csv_mode=True)
+        
+        # Should still work using cached CSV
+        offline_providers = api_offline.get_providers_by_country("HU")
+        assert len(offline_providers) > 0, "Should get providers from cached CSV"
+        assert offline_providers == initial_providers, "Should get same providers as before"
+        
+    finally:
+        if Path(test_dir).exists():
+            shutil.rmtree(test_dir)
