@@ -4,6 +4,11 @@ on:
   push:
     branches:
       - main
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - '.github/workflows/docs.yml'
+      - 'src/**/*.py'  # Python files might contain docstrings
 
 permissions:
   contents: write  # Needed to push to gh-pages branch
