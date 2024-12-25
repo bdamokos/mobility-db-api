@@ -8,7 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-- Add fallback to CSV catalog when API key is not available (CSV catalogue is available without the API key from Mobility Database)
+### Added
+- CSV catalog fallback functionality ([#5](https://github.com/bdamokos/mobility-db-api/issues/5)):
+  - Automatic fallback to CSV catalog when API key is not available
+  - Optional `force_csv_mode` to always use CSV catalog
+  - Lazy initialization of CSV catalog to improve performance
+  - ID normalization for consistent provider lookup
+- Improved error handling:
+  - Graceful handling of 413 (Request Entity Too Large) errors
+  - Automatic fallback to CSV mode on authentication errors
+  - Better token handling with empty headers when no token is available
+
+### Changed
+- Made CSV catalog initialization lazy to reduce unnecessary directory creation
+- Improved token handling to return `None` instead of raising errors
+- Enhanced error messages and logging for better debugging
+
+### Developer Changes
+- Added comprehensive tests for CSV catalog functionality
+- Added tests for ID normalization and conversion
+- Added tests for lazy initialization behavior
+- Updated documentation with CSV fallback examples and API reference
 
 ## [0.3.0] - 2024-12-24
 
