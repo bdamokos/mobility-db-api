@@ -18,16 +18,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Graceful handling of 413 (Request Entity Too Large) errors
   - Automatic fallback to CSV mode on authentication errors
   - Better token handling with empty headers when no token is available
+  - Robust handling of CSV network errors with fallback to cached data
+  - Proper handling of empty metadata files during concurrent access
 
 ### Changed
 - Made CSV catalog initialization lazy to reduce unnecessary directory creation
 - Improved token handling to return `None` instead of raising errors
 - Enhanced error messages and logging for better debugging
+- Improved file locking mechanism:
+  - Fixed handling of file modes for concurrent access
+  - Added proper file existence checks before opening
+  - Enhanced empty file handling during metadata operations
 
 ### Developer Changes
 - Added comprehensive tests for CSV catalog functionality
 - Added tests for ID normalization and conversion
 - Added tests for lazy initialization behavior
+- Added tests for CSV network error scenarios
+- Added tests for concurrent file access edge cases
 - Updated documentation with CSV fallback examples and API reference
 
 ## [0.3.0] - 2024-12-24
