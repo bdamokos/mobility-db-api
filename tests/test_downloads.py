@@ -10,6 +10,30 @@ import io
 from typing import Dict, Set
 from unittest.mock import patch
 
+@pytest.fixture(scope="module")
+def csv_cache_dir(tmp_path_factory):
+    """Create a temporary directory with downloaded CSV for tests that need it."""
+    # Use module-scoped temporary directory
+    test_dir = tmp_path_factory.mktemp("csv_cache")
+    
+    # Force CSV download by simulating API being down
+    original_get = requests.get
+    def mock_get(*args, **kwargs):
+        if "mobilitydatabase.org" in args[0]:  # API calls
+            raise requests.exceptions.ConnectionError("API is down")
+        return original_get(*args, **kwargs)  # Allow CSV download
+    
+    with patch('requests.get', side_effect=mock_get):
+        api = MobilityAPI(data_dir=str(test_dir))
+        providers = api.get_providers_by_country("HU")  # This will force CSV download
+        assert len(providers) > 0, "CSV download failed in fixture"
+        assert api._use_csv is True, "Should be using CSV in fixture"
+    
+    yield test_dir
+    
+    # Cleanup after all tests are done
+    shutil.rmtree(test_dir)
+
 def test_smallest_dataset():
     """Test downloading the smallest known dataset"""
     api = MobilityAPI()
@@ -179,30 +203,87 @@ def test_token_refresh_error():
     token = api.get_access_token()
     assert token is None  # Invalid token should return None
 
-def test_network_error(monkeypatch):
-    """Test handling of network errors during API calls"""
-    def mock_get(*args, **kwargs):
-        raise requests.exceptions.ConnectionError("Network error")
-    
-    def mock_post(*args, **kwargs):
-        response = requests.Response()
-        response.status_code = 200
-        response._content = json.dumps({"access_token": "mock_token"}).encode()
-        return response
-    
-    monkeypatch.setattr(requests, "get", mock_get)
-    monkeypatch.setattr(requests, "post", mock_post)  # Mock token refresh
-    api = MobilityAPI()
-    
-    # Test provider search with network error
-    # Should fall back to CSV catalog and return providers
-    providers = api.get_providers_by_country("HU")
-    assert len(providers) > 0  # Should get providers from CSV
-    assert api._use_csv is True  # Should switch to CSV mode
-    
-    # Test dataset download with network error
-    result = api.download_latest_dataset("tld-5862")
-    assert result is None  # Download should still fail
+def test_api_down_csv_available(monkeypatch, csv_cache_dir):
+    """Test when API is down but CSV is still accessible"""
+    try:
+        original_get = requests.get
+        def mock_get(*args, **kwargs):
+            if "mobilitydatabase.org" in args[0]:  # API calls
+                raise requests.exceptions.ConnectionError("API is down")
+            elif "share.mobilitydata.org" in args[0]:  # CSV download
+                return original_get(*args, **kwargs)
+            return original_get(*args, **kwargs)  # Any other requests
+        
+        monkeypatch.setattr(requests, "get", mock_get)
+        api = MobilityAPI(data_dir=str(csv_cache_dir))
+        
+        # Should fall back to CSV and succeed
+        providers = api.get_providers_by_country("HU")
+        assert len(providers) > 0, "Should get providers from CSV when API is down"
+        assert api._use_csv is True, "Should switch to CSV mode"
+
+    finally:
+        pass  # Cleanup handled by fixture
+
+def test_no_internet_with_cached_csv(monkeypatch, csv_cache_dir):
+    """Test when there's no internet but CSV is already cached"""
+    try:
+        # First ensure we have the CSV downloaded
+        api = MobilityAPI(data_dir=str(csv_cache_dir))
+        initial_providers = api.get_providers_by_country("HU")
+        assert len(initial_providers) > 0, "Initial CSV download should succeed"
+        
+        # Get just the IDs from initial providers
+        initial_provider_ids = {p['id'] for p in initial_providers if p['id'].startswith('mdb-')}
+        assert len(initial_provider_ids) > 0, "Should find some MDB providers"
+
+        # Now simulate complete network outage
+        def mock_get(*args, **kwargs):
+            raise requests.exceptions.ConnectionError("No internet connection")
+
+        monkeypatch.setattr(requests, "get", mock_get)
+
+        # Create new API instance to test offline behavior
+        api_offline = MobilityAPI(data_dir=str(csv_cache_dir))  # Don't force CSV mode, let it fall back naturally
+
+        # Should use cached CSV
+        providers = api_offline.get_providers_by_country("HU")
+        assert len(providers) > 0, "Should get providers from cached CSV"
+        
+        # Get just the IDs from offline providers
+        offline_provider_ids = {p['id'] for p in providers if p['id'].startswith('mdb-')}
+        assert len(offline_provider_ids) > 0, "Should find some MDB providers"
+        
+        # Check that all providers from CSV (offline) are present in the API results
+        # Note: API might have additional providers not in CSV, which is fine
+        assert offline_provider_ids.issubset(initial_provider_ids), "All CSV providers should be present in API results"
+
+    finally:
+        pass  # Cleanup handled by fixture
+
+def test_no_internet_no_cached_csv(monkeypatch):
+    """Test when there's no internet and no cached CSV"""
+    test_dir = "test_no_internet_no_cache"
+    if Path(test_dir).exists():
+        shutil.rmtree(test_dir)
+    Path(test_dir).mkdir()
+
+    try:
+        # Simulate complete network outage
+        def mock_get(*args, **kwargs):
+            raise requests.exceptions.ConnectionError("No internet connection")
+        
+        monkeypatch.setattr(requests, "get", mock_get)
+        api = MobilityAPI(data_dir=test_dir)
+        
+        # Should return empty list as can't get providers
+        providers = api.get_providers_by_country("HU")
+        assert len(providers) == 0, "Should return empty list when no CSV and no internet"
+        assert api._use_csv is True, "Should still switch to CSV mode"
+
+    finally:
+        if Path(test_dir).exists():
+            shutil.rmtree(test_dir)
 
 def test_api_error(monkeypatch):
     """Test handling of API errors"""
@@ -850,6 +931,10 @@ def test_delete_all_datasets():
 def test_directory_cleanup_behavior():
     """Test the cleanup behavior of deletion methods with various directory structures."""
     test_dir = "test_cleanup_behavior"
+    # Ensure clean state
+    if Path(test_dir).exists():
+        shutil.rmtree(test_dir)
+    
     api = MobilityAPI(test_dir)
     
     # Use our smallest datasets
@@ -859,10 +944,11 @@ def test_directory_cleanup_behavior():
     try:
         print("\nStep 1: Setting up test directory structure")
         base_dir = Path(test_dir)
+        base_dir.mkdir(exist_ok=True)
         
         # Create some unrelated files and directories that should be preserved
         unrelated_dir = base_dir / "unrelated_dir"
-        unrelated_dir.mkdir(parents=True)
+        unrelated_dir.mkdir(exist_ok=True)
         (unrelated_dir / "keep_this_file.txt").write_text("important content")
         
         # Create a custom file in the main data directory

@@ -54,7 +54,7 @@ class CSVCatalog:
             force_download: If True, force a new download of the CSV file.
         
         Returns:
-            List of provider dictionaries with standardized fields.
+            List of provider dictionaries with standardized fields matching the API format.
         """
         if not self._download_csv(force=force_download):
             return []
@@ -73,21 +73,44 @@ class CSVCatalog:
                         continue  # Skip redirected entries
                     
                     provider = {
-                        'id': row.get('mdb_source_id', ''),
-                        'provider': row.get('provider', 'Unknown Provider'),
-                        'country': row.get('location.country_code', ''),
-                        'source_info': {
-                            'producer_url': row.get('urls.direct_download', '')
-                        },
-                        'latest_dataset': {
-                            'id': f"csv_{datetime.now().strftime('%Y%m%d%H%M%S')}",
-                            'hosted_url': row.get('urls.latest', ''),
-                            'hash': None  # CSV doesn't provide hashes
-                        },
-                        'data_type': row.get('data_type', ''),
+                        'id': f"mdb-{row.get('mdb_source_id', '')}",
+                        'data_type': row.get('data_type', 'gtfs'),
                         'status': row.get('status', ''),
-                        'features': row.get('features', ''),
-                        'license_url': row.get('urls.license', '')
+                        'created_at': row.get('created_at', ''),
+                        'external_ids': [
+                            {
+                                'external_id': row.get('mdb_source_id', ''),
+                                'source': 'mdb'
+                            }
+                        ],
+                        'provider': row.get('provider', 'Unknown Provider'),
+                        'feed_name': row.get('feed_name', ''),
+                        'note': row.get('note', ''),
+                        'feed_contact_email': row.get('feed_contact_email', ''),
+                        'source_info': {
+                            'producer_url': row.get('urls.direct_download', ''),
+                            'authentication_type': int(row.get('authentication_type', 0)),
+                            'authentication_info_url': row.get('authentication_info_url', ''),
+                            'api_key_parameter_name': row.get('api_key_parameter_name', ''),
+                            'license_url': row.get('urls.license', '')
+                        },
+                        'redirects': [],
+                        'locations': [
+                            {
+                                'country_code': row.get('location.country_code', ''),
+                                'country': row.get('location.country', ''),
+                                'subdivision_name': row.get('location.subdivision_name'),
+                                'municipality': row.get('location.municipality')
+                            }
+                        ],
+                        'latest_dataset': {
+                            'id': f"mdb-{row.get('mdb_source_id', '')}-{datetime.now().strftime('%Y%m%d%H%M')}",
+                            'hosted_url': row.get('urls.latest', ''),
+                            'bounding_box': row.get('bounding_box'),
+                            'downloaded_at': row.get('downloaded_at'),
+                            'hash': row.get('hash'),
+                            'validation_report': row.get('validation_report')
+                        }
                     }
                     
                     # Only include GTFS providers that are not inactive/deprecated
@@ -121,7 +144,7 @@ class CSVCatalog:
             List of matching provider dictionaries.
         """
         providers = self.get_providers()
-        return [p for p in providers if p['country'].upper() == country_code.upper()]
+        return [p for p in providers if any(loc['country_code'].upper() == country_code.upper() for loc in p['locations'])]
     
     def get_providers_by_name(self, name: str) -> List[Dict]:
         """Search for providers by name.
@@ -165,27 +188,14 @@ class CSVCatalog:
         
         Returns:
             Provider information dictionary if found, None otherwise.
-            The dictionary includes standardized fields matching the API response format:
-                - provider: Provider name
-                - source_info: Source information including direct download URL
-                - latest_dataset: Latest dataset information
-                - data_type: Type of data (e.g., 'gtfs')
-                - status: Provider status
-                - features: Provider features
-                - license_url: URL to the license information
+            The dictionary includes all provider fields in the standardized format.
         """
         normalized_id = self._normalize_provider_id(provider_id)
         providers = self.get_providers()
-        provider = next((p for p in providers if p['id'] == normalized_id), None)
         
-        if provider:
-            return {
-                'provider': provider['provider'],
-                'source_info': provider['source_info'],
-                'latest_dataset': provider['latest_dataset'],
-                'data_type': provider['data_type'],
-                'status': provider['status'],
-                'features': provider['features'],
-                'license_url': provider['license_url']
-            }
+        # Try to find the provider by comparing normalized IDs
+        for provider in providers:
+            if self._normalize_provider_id(provider['id']) == normalized_id:
+                return provider
+        
         return None 

@@ -84,12 +84,12 @@ def test_load_providers(catalog, test_csv_content):
     
     # Check first provider
     provider = providers[0]
-    assert provider['id'] == 'test-1'
+    assert provider['id'] == 'mdb-test-1'
     assert provider['provider'] == 'Test Provider 1'
-    assert provider['country'] == 'HU'
+    assert provider['locations'][0]['country_code'] == 'HU'
     assert provider['source_info']['producer_url'] == 'http://test1.com/direct'
     assert provider['latest_dataset']['hosted_url'] == 'http://test1.com/latest'
-    assert provider['license_url'] == 'http://test1.com/license'
+    assert provider['source_info']['license_url'] == 'http://test1.com/license'
     assert provider['data_type'] == 'gtfs'
     assert provider['status'] == ''
 
@@ -108,13 +108,13 @@ def test_provider_filtering(catalog, test_csv_content):
     provider_ids = {p['id'] for p in providers}
     
     # Check that only active GTFS providers are included
-    assert 'test-1' in provider_ids  # Active GTFS
-    assert 'test-2' in provider_ids  # Active GTFS
-    assert 'test-3' in provider_ids  # Active GTFS
-    assert 'test-4' not in provider_ids  # Inactive
-    assert 'test-5' not in provider_ids  # Deprecated
-    assert 'test-6' not in provider_ids  # Redirected
-    assert 'test-7' not in provider_ids  # GBFS (not GTFS)
+    assert 'mdb-test-1' in provider_ids  # Active GTFS
+    assert 'mdb-test-2' in provider_ids  # Active GTFS
+    assert 'mdb-test-3' in provider_ids  # Active GTFS
+    assert 'mdb-test-4' not in provider_ids  # Inactive
+    assert 'mdb-test-5' not in provider_ids  # Deprecated
+    assert 'mdb-test-6' not in provider_ids  # Redirected
+    assert 'mdb-test-7' not in provider_ids  # GBFS (not GTFS)
 
 @responses.activate
 def test_get_providers_by_country(catalog, test_csv_content):
@@ -130,8 +130,8 @@ def test_get_providers_by_country(catalog, test_csv_content):
     # Test case-insensitive search
     hu_providers = catalog.get_providers_by_country('hu')
     assert len(hu_providers) == 2
-    assert hu_providers[0]['id'] == 'test-1'
-    assert hu_providers[1]['id'] == 'test-3'
+    assert hu_providers[0]['id'] == 'mdb-test-1'
+    assert hu_providers[1]['id'] == 'mdb-test-3'
     
     # Test non-existent country
     assert len(catalog.get_providers_by_country('XX')) == 0
@@ -153,8 +153,8 @@ def test_get_providers_by_name(catalog, test_csv_content):
     # Test partial match (should only include active GTFS providers)
     test_providers = catalog.get_providers_by_name('Test')
     assert len(test_providers) == 2
-    assert test_providers[0]['id'] == 'test-1'
-    assert test_providers[1]['id'] == 'test-2'
+    assert test_providers[0]['id'] == 'mdb-test-1'
+    assert test_providers[1]['id'] == 'mdb-test-2'
     
     # Test case-insensitive search
     providers = catalog.get_providers_by_name('provider')
@@ -206,8 +206,8 @@ def test_provider_caching(catalog, test_csv_content):
     providers3 = catalog.get_providers(force_reload=True)
     assert providers3 != providers1
     assert len(providers3) == 2  # New data has 2 active GTFS providers
-    assert providers3[0]['id'] == 'test-8'
-    assert providers3[1]['id'] == 'test-9' 
+    assert providers3[0]['id'] == 'mdb-test-8'
+    assert providers3[1]['id'] == 'mdb-test-9'
 
 @responses.activate
 def test_get_provider_info(catalog, test_csv_content):
@@ -221,30 +221,30 @@ def test_get_provider_info(catalog, test_csv_content):
     )
     
     # Test getting existing provider
-    provider_info = catalog.get_provider_info('test-1')
+    provider_info = catalog.get_provider_info('mdb-test-1')
     assert provider_info is not None
     assert provider_info['provider'] == 'Test Provider 1'
     assert provider_info['data_type'] == 'gtfs'
     assert provider_info['source_info']['producer_url'] == 'http://test1.com/direct'
     assert provider_info['latest_dataset']['hosted_url'] == 'http://test1.com/latest'
-    assert provider_info['license_url'] == 'http://test1.com/license'
+    assert provider_info['source_info']['license_url'] == 'http://test1.com/license'
     assert provider_info['status'] == ''
-    assert provider_info['features'] == ''
+    assert provider_info['locations'][0]['country_code'] == 'HU'
     
     # Test getting non-existent provider
     assert catalog.get_provider_info('non-existent') is None
     
     # Test getting inactive provider (should return None)
-    assert catalog.get_provider_info('test-4') is None
+    assert catalog.get_provider_info('mdb-test-4') is None
     
     # Test getting deprecated provider (should return None)
-    assert catalog.get_provider_info('test-5') is None
+    assert catalog.get_provider_info('mdb-test-5') is None
     
     # Test getting redirected provider (should return None)
-    assert catalog.get_provider_info('test-6') is None
+    assert catalog.get_provider_info('mdb-test-6') is None
     
     # Test getting non-GTFS provider (should return None)
-    assert catalog.get_provider_info('test-7') is None 
+    assert catalog.get_provider_info('mdb-test-7') is None
 
 @responses.activate
 def test_provider_id_normalization(catalog, test_csv_content):
@@ -258,19 +258,18 @@ def test_provider_id_normalization(catalog, test_csv_content):
     )
     
     # Test direct ID lookup
-    provider_info = catalog.get_provider_info('test-1')
-    assert provider_info is not None
-    assert provider_info['provider'] == 'Test Provider 1'
-    
-    # Test with mdb- prefix
     provider_info = catalog.get_provider_info('mdb-test-1')
     assert provider_info is not None
-    assert provider_info['provider'] == 'Test Provider 1'
+    assert provider_info['id'] == 'mdb-test-1'
     
-    # Test with numeric ID
+    # Test raw ID lookup (should still work)
+    provider_info = catalog.get_provider_info('test-1')
+    assert provider_info is not None
+    assert provider_info['id'] == 'mdb-test-1'
+    
+    # Test numeric ID lookup
     provider_info = catalog.get_provider_info('1')
     assert provider_info is None  # Our test data doesn't have numeric IDs
     
-    # Test with other prefix (should not be converted)
-    provider_info = catalog.get_provider_info('tld-test-1')
-    assert provider_info is None  # Should not match as prefix is preserved 
+    # Test invalid ID
+    assert catalog.get_provider_info('invalid-id') is None 
