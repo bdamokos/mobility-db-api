@@ -6,8 +6,13 @@
 pip install mobility-db-api
 ```
 
-## Authentication
+## Authentication (Optional)
 
+The client works in two modes:
+1. CSV mode (default): Uses a local CSV catalog with basic provider information
+2. API mode: Provides real-time, complete dataset information when an API token is available
+
+To enable API mode:
 1. Get your API token from the [Mobility Database](https://database.mobilitydata.org/)
 2. Set it as an environment variable:
    ```bash
@@ -27,20 +32,25 @@ pip install mobility-db-api
 ```python
 from mobility_db_api import MobilityAPI
 
-# Initialize client (uses environment variable or .env file for token)
+# Initialize client
+# Without token: Uses CSV mode with basic provider information
+# With token: Uses API mode with complete, real-time data
 api = MobilityAPI()
 
-# Search for providers
+# Search for providers (works in both modes)
 providers = api.get_providers_by_country("BE")
 print(f"Found {len(providers)} providers")
 
-# Download a dataset
+# Download a dataset (works in both modes)
 if providers:
     dataset_path = api.download_latest_dataset(
         providers[0]['id'],
         download_dir='downloads'
     )
     print(f"Dataset downloaded to: {dataset_path}")
+
+# Force CSV mode even if token is available
+api = MobilityAPI(force_csv_mode=True)
 ```
 
 ## What's Next?
