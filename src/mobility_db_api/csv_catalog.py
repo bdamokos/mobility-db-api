@@ -68,9 +68,9 @@ class CSVCatalog:
                     if row.get('status') in ('inactive', 'deprecated'):
                         continue
                     
-                    # Handle redirects
+                    # Skip redirected providers
                     if row.get('redirect.id'):
-                        continue  # Skip redirected entries
+                        continue
                     
                     provider = {
                         'id': f"mdb-{row.get('mdb_source_id', '')}",
@@ -89,12 +89,11 @@ class CSVCatalog:
                         'feed_contact_email': row.get('feed_contact_email', ''),
                         'source_info': {
                             'producer_url': row.get('urls.direct_download', ''),
-                            'authentication_type': int(row.get('authentication_type', 0)),
-                            'authentication_info_url': row.get('authentication_info_url', ''),
-                            'api_key_parameter_name': row.get('api_key_parameter_name', ''),
+                            'authentication_type': int(row.get('urls.authentication_type', '0') or '0'),
+                            'authentication_info_url': row.get('urls.authentication_info', ''),
+                            'api_key_parameter_name': row.get('urls.api_key_parameter_name', ''),
                             'license_url': row.get('urls.license', '')
                         },
-                        'redirects': [],
                         'locations': [
                             {
                                 'country_code': row.get('location.country_code', ''),
@@ -165,6 +164,7 @@ class CSVCatalog:
         Handles the following formats:
         - "123" -> "123"
         - "mdb-123" -> "123"
+        - "test-123" -> "test-123"
         - Other formats (e.g., "tld-123") -> unchanged
         
         Args:
@@ -196,6 +196,9 @@ class CSVCatalog:
         # Try to find the provider by comparing normalized IDs
         for provider in providers:
             if self._normalize_provider_id(provider['id']) == normalized_id:
+                # Check if this is a redirected provider
+                if provider.get('redirects'):
+                    return None
                 return provider
         
         return None 

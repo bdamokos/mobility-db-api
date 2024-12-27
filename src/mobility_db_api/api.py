@@ -623,6 +623,114 @@ class MobilityAPI:
         return [meta for meta in self.datasets.values() 
                 if meta.download_path.exists()]
 
+    def _add_downloaded_dataset_info(self, provider_info: Dict) -> Dict:
+        """Add downloaded dataset information to provider info if available.
+        
+        Args:
+            provider_info: Provider information dictionary
+            
+        Returns:
+            Updated provider information dictionary with downloaded dataset info if available
+        """
+        if not provider_info:
+            return provider_info
+            
+        # Get provider ID and normalize it
+        provider_id = provider_info['id']
+        if provider_id.startswith('mdb-'):
+            normalized_id = provider_id
+        elif provider_id.isdigit():
+            normalized_id = f"mdb-{provider_id}"
+        else:
+            normalized_id = provider_id  # Keep other formats (e.g., tld-1234) as is
+            
+        # Check if we have a downloaded dataset for this provider
+        self.ensure_metadata_current()
+        downloaded_datasets = [
+            meta for meta in self.datasets.values()
+            if meta.provider_id == normalized_id and meta.download_path.exists()
+        ]
+        
+        if downloaded_datasets:
+            # Sort by download date to get the latest
+            downloaded_datasets.sort(key=lambda x: x.download_date, reverse=True)
+            latest = downloaded_datasets[0]
+            
+            # Add downloaded dataset info to the provider info
+            provider_info["downloaded_dataset"] = {
+                "dataset_id": latest.dataset_id,
+                "download_date": latest.download_date.isoformat(),
+                "download_path": str(latest.download_path),
+                "is_direct_source": latest.is_direct_source,
+                "file_hash": latest.file_hash,
+                "feed_start_date": latest.feed_start_date,
+                "feed_end_date": latest.feed_end_date
+            }
+        
+        return provider_info
+
+    def get_provider_info(self, provider_id: str) -> Optional[Dict]:
+        """
+        Get information about a specific provider, including any downloaded dataset.
+        
+        This method combines provider information from either the API or CSV catalog
+        with information about any downloaded dataset for this provider.
+        
+        Args:
+            provider_id: The unique identifier of the provider
+        
+        Returns:
+            Dictionary containing provider information and downloaded dataset details
+            if available, None if the provider doesn't exist or is inactive/deprecated.
+            
+        Example:
+            >>> api = MobilityAPI()
+            >>> info = api.get_provider_info("mdb-123")
+            >>> if info:
+            ...     print(f"Provider: {info['provider']}")
+            ...     if 'downloaded_dataset' in info:
+            ...         print(f"Downloaded: {info['downloaded_dataset']['download_path']}")
+        """
+        # First try to get provider info from API or CSV
+        if self._use_csv:
+            provider_info = self.csv_catalog.get_provider_info(provider_id)
+            if not provider_info:
+                return None
+            # Check for redirects
+            if provider_info.get('redirects'):
+                return None
+            return self._add_downloaded_dataset_info(provider_info)
+        
+        try:
+            url = f"{self.base_url}/gtfs_feeds/{provider_id}"
+            response = requests.get(url, headers=self._get_headers())
+            if response.status_code == 200:
+                try:
+                    provider_info = response.json()
+                    # Check for redirects
+                    if provider_info.get('redirects'):
+                        return None
+                    return self._add_downloaded_dataset_info(provider_info)
+                except requests.exceptions.JSONDecodeError:
+                    self.logger.warning("Invalid JSON response from API")
+                    return None
+            elif response.status_code in (401, 403, 413):  # Auth errors or request too large
+                self.logger.info("Falling back to CSV catalog")
+                self._use_csv = True
+                return self.get_provider_info(provider_id)
+            elif response.status_code == 404:
+                return None
+            else:
+                self.logger.warning(f"API request failed with status {response.status_code}")
+                self._use_csv = True  # Fall back to CSV on any other error
+                return self.get_provider_info(provider_id)
+        except requests.exceptions.RequestException:
+            self.logger.warning("API request failed, falling back to CSV catalog")
+            self._use_csv = True
+            return self.get_provider_info(provider_id)
+        
+        return None
+
     def _cleanup_empty_provider_dir(self, provider_path: Path) -> None:
         """
         Clean up a provider directory if it's empty.
