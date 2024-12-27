@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 ### Added
+- Enhanced provider information retrieval:
+  - New `get_provider_info()` method in both API and CSV modes
+  - Combines live provider data with downloaded dataset information
+  - Automatic fallback to CSV catalog on API errors
+  - Comprehensive metadata about downloaded datasets
 - CSV catalog fallback functionality ([#5](https://github.com/bdamokos/mobility-db-api/issues/5)):
   - Automatic fallback to CSV catalog when API key is not available
   - Optional `force_csv_mode` to always use CSV catalog
@@ -31,7 +36,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Enhanced empty file handling during metadata operations
 
 ### Developer Changes
-- Added comprehensive tests for CSV catalog functionality
+- Added comprehensive tests for provider information retrieval
+- Added tests for CSV catalog functionality
 - Added tests for ID normalization and conversion
 - Added tests for lazy initialization behavior
 - Added tests for CSV network error scenarios
