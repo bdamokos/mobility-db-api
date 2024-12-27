@@ -26,6 +26,8 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.13", "3.12", "3.11"]
+      # Add serial execution to ensure delays work
+      max-parallel: 1
 
     steps:
     - uses: actions/checkout@v4
@@ -61,3 +63,8 @@ jobs:
       with:
         name: pytest-results-${{ matrix.python-version }}
         path: pytest-results/results.json
+
+    # Add delay between test runs
+    - name: Wait before next test run
+      if: matrix.python-version != '3.11'  # Don't wait after the last version
+      run: sleep 30
