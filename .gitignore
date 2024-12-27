@@ -40,3 +40,4 @@ htmlcov/
 dev/
 sources.csv
 DEVELOPMENT.md
+test_marimo.py
