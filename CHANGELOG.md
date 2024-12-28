@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+## [0.4.1] - 2024-12-28
 ### Added
 - New `get_provider_by_id()` method that follows the naming convention of other provider search methods
 
