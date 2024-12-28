@@ -425,3 +425,45 @@ def test_get_provider_info_search_csv_mode(test_csv_content, mock_dataset_conten
     finally:
         if Path(test_dir).exists():
             shutil.rmtree(test_dir) 
+
+def test_get_provider_by_id_no_args():
+    """Test calling get_provider_by_id without arguments."""
+    api = MobilityAPI()
+    with pytest.raises(TypeError):
+        api.get_provider_by_id()
+
+def test_get_providers_by_country_no_args():
+    """Test calling get_providers_by_country without arguments."""
+    api = MobilityAPI()
+    with pytest.raises(TypeError):
+        api.get_providers_by_country()
+
+def test_get_providers_by_name_no_args():
+    """Test calling get_providers_by_name without arguments."""
+    api = MobilityAPI()
+    with pytest.raises(TypeError):
+        api.get_providers_by_name()
+
+def test_get_provider_info_no_args_explicit():
+    """Test explicitly calling get_provider_info without any arguments."""
+    api = MobilityAPI()
+    providers = api.get_provider_info()
+    assert isinstance(providers, list)
+    assert len(providers) == 0
+
+def test_get_provider_info_empty_args():
+    """Test calling get_provider_info with empty strings."""
+    api = MobilityAPI()
+    
+    # Empty provider_id should return None
+    assert api.get_provider_info(provider_id="") is None
+    
+    # Empty country_code should return empty list
+    providers = api.get_provider_info(country_code="")
+    assert isinstance(providers, list)
+    assert len(providers) == 0
+    
+    # Empty name should return all providers (since empty string matches all names)
+    providers = api.get_provider_info(name="")
+    assert isinstance(providers, list)
+    assert len(providers) > 0  # Should return all active GTFS providers 
