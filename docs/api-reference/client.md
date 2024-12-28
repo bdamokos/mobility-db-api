@@ -65,6 +65,12 @@ class DatasetMetadata:
 # Function signatures
 def get_providers_by_country(country_code: str) -> List[Dict]: ...
 def get_providers_by_name(name: str) -> List[Dict]: ...
+def get_provider_by_id(provider_id: str) -> Optional[Dict]: ...
+def get_provider_info(
+    provider_id: Optional[str] = None,
+    country_code: Optional[str] = None,
+    name: Optional[str] = None
+) -> Union[Optional[Dict], List[Dict]]: ...
 def download_latest_dataset(
     provider_id: str,
     download_dir: Optional[str] = None,
@@ -256,6 +262,65 @@ Example:
 ```python
 api = MobilityAPI()
 providers = api.get_providers_by_name("BKK")
+```
+
+#### get_provider_by_id
+```python
+get_provider_by_id(provider_id: str) -> Optional[Dict]
+```
+Get information about a specific provider by ID.
+
+Parameters:
+- `provider_id`: The unique identifier of the provider
+
+Returns:
+- Dictionary containing provider information and downloaded dataset details if available
+- None if the provider doesn't exist or is inactive/deprecated
+
+Example:
+```python
+api = MobilityAPI()
+info = api.get_provider_by_id("mdb-123")
+if info:
+    print(f"Provider: {info['provider']}")
+    if 'downloaded_dataset' in info:
+        print(f"Downloaded: {info['downloaded_dataset']['download_path']}")
+```
+
+#### get_provider_info
+```python
+get_provider_info(
+    provider_id: Optional[str] = None,
+    country_code: Optional[str] = None,
+    name: Optional[str] = None
+) -> Union[Optional[Dict], List[Dict]]
+```
+Get information about providers based on search criteria. This method combines the functionality
+of `get_provider_by_id`, `get_providers_by_country`, and `get_providers_by_name` into a single method.
+
+Parameters:
+- `provider_id`: Optional provider ID for exact match
+- `country_code`: Optional two-letter ISO country code for filtering
+- `name`: Optional provider name for partial matching
+
+Returns:
+- If `provider_id` is specified:
+  - Dictionary containing provider information and downloaded dataset details if available
+  - None if the provider doesn't exist or is inactive/deprecated
+- If `country_code` or `name` is specified:
+  - List of matching provider dictionaries
+- If no criteria specified:
+  - Empty list
+
+Example:
+```python
+api = MobilityAPI()
+# Get by ID
+info = api.get_provider_info(provider_id="mdb-123")
+# Get by country
+be_providers = api.get_provider_info(country_code="BE")
+# Get by name
+sncb = api.get_provider_info(name="SNCB")
 ```
 
 #### download_latest_dataset

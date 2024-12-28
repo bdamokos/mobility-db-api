@@ -7,20 +7,34 @@ from mobility_db_api import MobilityAPI
 
 api = MobilityAPI()
 
-# Search by country
+# Search by country (traditional way)
 providers = api.get_providers_by_country("BE")
 print(f"Found {len(providers)} providers in Belgium")
 
-# Search by name
+# Search by name (traditional way)
 sncb = api.get_providers_by_name("SNCB")
 print(f"Found {len(sncb)} SNCB providers")
 
-# Print provider details
-if providers:
-    provider = providers[0]
+# Get provider by ID (new way)
+provider = api.get_provider_by_id("mdb-123")
+if provider:
+    print(f"Found provider: {provider['provider']}")
+
+# Combined search functionality (new way)
+# Search by country
+be_providers = api.get_provider_info(country_code="BE")
+print(f"Found {len(be_providers)} providers in Belgium")
+
+# Search by name
+sncb = api.get_provider_info(name="SNCB")
+print(f"Found {len(sncb)} SNCB providers")
+
+# Get by ID with downloaded dataset info
+provider = api.get_provider_info(provider_id="mdb-123")
+if provider:
     print(f"Provider: {provider['provider']}")
-    print(f"ID: {provider['id']}")
-    print(f"Direct download: {'Yes' if provider.get('direct_download_url') else 'No'}")
+    if 'downloaded_dataset' in provider:
+        print(f"Downloaded dataset: {provider['downloaded_dataset']['download_path']}")
 ```
 
 ## Dataset Download

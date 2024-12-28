@@ -6,7 +6,7 @@ import csv
 import time
 import fcntl
 from pathlib import Path
-from typing import Optional, List, Dict, Tuple
+from typing import Optional, List, Dict, Tuple, Union
 from dataclasses import dataclass
 from datetime import datetime
 import zipfile
@@ -330,22 +330,7 @@ class MobilityAPI:
             ...     print(f"{p['provider']}: {p['id']}")
             'BKK: o-u-dr_bkk'
         """
-        if self._use_csv:
-            return self.csv_catalog.get_providers_by_country(country_code)
-        
-        url = f"{self.base_url}/gtfs_feeds"
-        params = {"country_code": country_code.upper()}
-        
-        try:
-            response = requests.get(url, headers=self._get_headers(), params=params)
-            if response.status_code == 200:
-                return response.json()
-            return []
-        except requests.exceptions.RequestException:
-            # If API request fails, try CSV fallback
-            self.logger.warning("API request failed, falling back to CSV catalog")
-            self._use_csv = True
-            return self.csv_catalog.get_providers_by_country(country_code)
+        return self.get_provider_info(country_code=country_code)
 
     def get_providers_by_name(self, name: str) -> List[Dict]:
         """Search for providers by name.
@@ -356,22 +341,157 @@ class MobilityAPI:
         Returns:
             List of matching provider dictionaries.
         """
+        return self.get_provider_info(name=name)
+
+    def get_provider_by_id(self, provider_id: str) -> Optional[Dict]:
+        """Get information about a specific provider by ID.
+
+        This method is similar to get_provider_info but follows the naming convention
+        of get_providers_by_country and get_providers_by_name. It returns information
+        about a single provider, including any downloaded dataset.
+
+        Args:
+            provider_id: The unique identifier of the provider
+
+        Returns:
+            Dictionary containing provider information and downloaded dataset details
+            if available, None if the provider doesn't exist or is inactive/deprecated.
+
+        Example:
+            >>> api = MobilityAPI()
+            >>> info = api.get_provider_by_id("mdb-123")
+            >>> if info:
+            ...     print(f"Provider: {info['provider']}")
+            ...     if 'downloaded_dataset' in info:
+            ...         print(f"Downloaded: {info['downloaded_dataset']['download_path']}")
+        """
+        return self.get_provider_info(provider_id=provider_id)
+
+    def get_provider_info(self, provider_id: Optional[str] = None, country_code: Optional[str] = None,
+                         name: Optional[str] = None) -> Union[Optional[Dict], List[Dict]]:
+        """
+        Get information about providers based on search criteria.
+        
+        This method is the central provider search functionality that powers get_provider_by_id,
+        get_providers_by_country, and get_providers_by_name. It can search by ID, country code,
+        or name, and returns either a single provider or a list of providers.
+        
+        Args:
+            provider_id: Optional provider ID for exact match
+            country_code: Optional two-letter ISO country code for filtering
+            name: Optional provider name for partial matching
+        
+        Returns:
+            If provider_id is specified:
+                Dictionary containing provider information and downloaded dataset details
+                if available, None if the provider doesn't exist or is inactive/deprecated.
+            If country_code or name is specified:
+                List of matching provider dictionaries.
+            If no criteria specified:
+                Empty list.
+            
+        Example:
+            >>> api = MobilityAPI()
+            >>> # Get by ID
+            >>> info = api.get_provider_info(provider_id="mdb-123")
+            >>> # Get by country
+            >>> be_providers = api.get_provider_info(country_code="BE")
+            >>> # Get by name
+            >>> sncb = api.get_provider_info(name="SNCB")
+        """
+        # If provider_id is specified, use exact match lookup
+        if provider_id is not None:
+            # First try to get provider info from API or CSV
+            if self._use_csv:
+                provider_info = self.csv_catalog.get_provider_info(provider_id)
+                if not provider_info:
+                    return None
+                # Check for redirects
+                if provider_info.get('redirects'):
+                    return None
+                return self._add_downloaded_dataset_info(provider_info)
+            
+            try:
+                url = f"{self.base_url}/gtfs_feeds/{provider_id}"
+                response = requests.get(url, headers=self._get_headers())
+                if response.status_code == 200:
+                    try:
+                        provider_info = response.json()
+                        # Handle both single item and list responses
+                        if isinstance(provider_info, list):
+                            if not provider_info:  # Empty list
+                                return None
+                            provider_info = provider_info[0]  # Take first match
+                        # Check for redirects
+                        if provider_info.get('redirects'):
+                            return None
+                        return self._add_downloaded_dataset_info(provider_info)
+                    except requests.exceptions.JSONDecodeError:
+                        self.logger.warning("Invalid JSON response from API")
+                        return None
+                elif response.status_code in (401, 403, 413):  # Auth errors or request too large
+                    self.logger.info("Falling back to CSV catalog")
+                    self._use_csv = True
+                    return self.get_provider_info(provider_id=provider_id)
+                elif response.status_code == 404:
+                    return None
+                else:
+                    self.logger.warning(f"API request failed with status {response.status_code}")
+                    self._use_csv = True  # Fall back to CSV on any other error
+                    return self.get_provider_info(provider_id=provider_id)
+            except requests.exceptions.RequestException:
+                self.logger.warning("API request failed, falling back to CSV catalog")
+                self._use_csv = True
+                return self.get_provider_info(provider_id=provider_id)
+            
+            return None
+        
+        # For country or name search, use the appropriate API endpoint or CSV catalog
         if self._use_csv:
-            return self.csv_catalog.get_providers_by_name(name)
+            if country_code is not None:
+                providers = self.csv_catalog.get_providers()
+                return [
+                    p for p in providers
+                    if any(
+                        loc["country_code"].upper() == country_code.upper()
+                        for loc in p["locations"]
+                    )
+                ]
+            elif name is not None:
+                providers = self.csv_catalog.get_providers()
+                name_lower = name.lower()
+                return [p for p in providers if name_lower in p["provider"].lower()]
+            return []
         
-        url = f"{self.base_url}/gtfs_feeds"
-        params = {"provider": name}
-        
+        # Use API for search
         try:
+            url = f"{self.base_url}/gtfs_feeds"
+            params = {}
+            if country_code is not None:
+                params["country_code"] = country_code
+            elif name is not None:
+                params["provider"] = name
+            
+            if not params:
+                return []
+            
             response = requests.get(url, headers=self._get_headers(), params=params)
             if response.status_code == 200:
                 return response.json()
-            return []
+            elif response.status_code in (401, 403, 413):  # Auth errors or request too large
+                self.logger.info("Falling back to CSV catalog")
+                self._use_csv = True
+                return self.get_provider_info(country_code=country_code, name=name)
+            else:
+                self.logger.warning(f"API request failed with status {response.status_code}")
+                self._use_csv = True  # Fall back to CSV on any other error
+                return self.get_provider_info(country_code=country_code, name=name)
         except requests.exceptions.RequestException:
-            # If API request fails, try CSV fallback
             self.logger.warning("API request failed, falling back to CSV catalog")
             self._use_csv = True
-            return self.csv_catalog.get_providers_by_name(name)
+            return self.get_provider_info(country_code=country_code, name=name)
+        
+        return []
 
     def _calculate_file_hash(self, file_path: Path) -> str:
         """Calculate SHA-256 hash of a file"""
@@ -668,68 +788,6 @@ class MobilityAPI:
             }
         
         return provider_info
-
-    def get_provider_info(self, provider_id: str) -> Optional[Dict]:
-        """
-        Get information about a specific provider, including any downloaded dataset.
-        
-        This method combines provider information from either the API or CSV catalog
-        with information about any downloaded dataset for this provider.
-        
-        Args:
-            provider_id: The unique identifier of the provider
-        
-        Returns:
-            Dictionary containing provider information and downloaded dataset details
-            if available, None if the provider doesn't exist or is inactive/deprecated.
-            
-        Example:
-            >>> api = MobilityAPI()
-            >>> info = api.get_provider_info("mdb-123")
-            >>> if info:
-            ...     print(f"Provider: {info['provider']}")
-            ...     if 'downloaded_dataset' in info:
-            ...         print(f"Downloaded: {info['downloaded_dataset']['download_path']}")
-        """
-        # First try to get provider info from API or CSV
-        if self._use_csv:
-            provider_info = self.csv_catalog.get_provider_info(provider_id)
-            if not provider_info:
-                return None
-            # Check for redirects
-            if provider_info.get('redirects'):
-                return None
-            return self._add_downloaded_dataset_info(provider_info)
-        
-        try:
-            url = f"{self.base_url}/gtfs_feeds/{provider_id}"
-            response = requests.get(url, headers=self._get_headers())
-            if response.status_code == 200:
-                try:
-                    provider_info = response.json()
-                    # Check for redirects
-                    if provider_info.get('redirects'):
-                        return None
-                    return self._add_downloaded_dataset_info(provider_info)
-                except requests.exceptions.JSONDecodeError:
-                    self.logger.warning("Invalid JSON response from API")
-                    return None
-            elif response.status_code in (401, 403, 413):  # Auth errors or request too large
-                self.logger.info("Falling back to CSV catalog")
-                self._use_csv = True
-                return self.get_provider_info(provider_id)
-            elif response.status_code == 404:
-                return None
-            else:
-                self.logger.warning(f"API request failed with status {response.status_code}")
-                self._use_csv = True  # Fall back to CSV on any other error
-                return self.get_provider_info(provider_id)
-        except requests.exceptions.RequestException:
-            self.logger.warning("API request failed, falling back to CSV catalog")
-            self._use_csv = True
-            return self.get_provider_info(provider_id)
-        
-        return None
 
     def _cleanup_empty_provider_dir(self, provider_path: Path) -> None:
         """

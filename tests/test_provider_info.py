@@ -252,3 +252,176 @@ def test_get_provider_info_fallback(test_csv_content, mock_dataset_content):
     finally:
         if Path(test_dir).exists():
             shutil.rmtree(test_dir) 
+
+def test_get_provider_by_id_api_mode(test_provider_data, mock_dataset_content):
+    """Test getting provider info by ID in API mode with downloaded dataset."""
+    test_dir = "test_provider_info"
+    api = MobilityAPI(test_dir)
+    
+    try:
+        # Mock API responses
+        def mock_get(*args, **kwargs):
+            response = requests.Response()
+            response.status_code = 200
+            
+            if "gtfs_feeds/mdb-test-1" in args[0]:
+                response._content = json.dumps(test_provider_data).encode()
+            elif "latest" in args[0]:  # Dataset download
+                response._content = mock_dataset_content
+            return response
+        
+        def mock_post(*args, **kwargs):
+            response = requests.Response()
+            response.status_code = 200
+            response._content = json.dumps({"access_token": "mock_token"}).encode()
+            return response
+        
+        with patch('requests.get', side_effect=mock_get), patch('requests.post', side_effect=mock_post):
+            # First get provider info without downloaded dataset
+            provider_info = api.get_provider_by_id("mdb-test-1")
+            assert provider_info is not None
+            assert provider_info["id"] == "mdb-test-1"
+            assert provider_info["provider"] == "Test Provider 1"
+            assert "downloaded_dataset" not in provider_info
+            
+            # Download the dataset
+            dataset_path = api.download_latest_dataset("mdb-test-1")
+            assert dataset_path is not None
+            assert dataset_path.exists()
+            
+            # Get provider info again, should include downloaded dataset info
+            provider_info = api.get_provider_by_id("mdb-test-1")
+            assert provider_info is not None
+            assert provider_info["id"] == "mdb-test-1"
+            assert provider_info["provider"] == "Test Provider 1"
+            assert "downloaded_dataset" in provider_info
+            downloaded = provider_info["downloaded_dataset"]
+            assert downloaded["dataset_id"] == "test-dataset-1"
+            assert downloaded["download_path"] == str(dataset_path)
+            assert downloaded["feed_start_date"] == "20240101"
+            assert downloaded["feed_end_date"] == "20241231"
+            
+            # Test with non-existent provider
+            provider_info = api.get_provider_by_id("non-existent")
+            assert provider_info is None
+            
+            # Test with invalid provider ID
+            provider_info = api.get_provider_by_id("invalid-id")
+            assert provider_info is None
+    
+    finally:
+        if Path(test_dir).exists():
+            shutil.rmtree(test_dir)
+
+def test_get_provider_info_search_api_mode(test_provider_data, mock_dataset_content):
+    """Test searching providers with get_provider_info in API mode."""
+    test_dir = "test_provider_info"
+    api = MobilityAPI(test_dir)
+    
+    try:
+        # Mock API responses
+        def mock_get(*args, **kwargs):
+            response = requests.Response()
+            response.status_code = 200
+            
+            if "gtfs_feeds/mdb-test-1" in args[0]:
+                response._content = json.dumps(test_provider_data).encode()
+            elif "gtfs_feeds" in args[0]:
+                # Handle search queries
+                if kwargs.get('params', {}).get('country_code') == "HU":
+                    response._content = json.dumps([test_provider_data]).encode()
+                elif kwargs.get('params', {}).get('provider') == "Test Provider":
+                    response._content = json.dumps([test_provider_data]).encode()
+                else:
+                    response._content = json.dumps([]).encode()
+            elif "latest" in args[0]:  # Dataset download
+                response._content = mock_dataset_content
+            return response
+        
+        def mock_post(*args, **kwargs):
+            response = requests.Response()
+            response.status_code = 200
+            response._content = json.dumps({"access_token": "mock_token"}).encode()
+            return response
+        
+        with patch('requests.get', side_effect=mock_get), patch('requests.post', side_effect=mock_post):
+            # Test search by ID
+            provider_info = api.get_provider_info(provider_id="mdb-test-1")
+            assert provider_info is not None
+            assert provider_info["id"] == "mdb-test-1"
+            assert provider_info["provider"] == "Test Provider 1"
+            
+            # Test search by country
+            providers = api.get_provider_info(country_code="HU")
+            assert len(providers) == 1
+            assert providers[0]["id"] == "mdb-test-1"
+            assert providers[0]["provider"] == "Test Provider 1"
+            
+            # Test search by name
+            providers = api.get_provider_info(name="Test Provider")
+            assert len(providers) == 1
+            assert providers[0]["id"] == "mdb-test-1"
+            assert providers[0]["provider"] == "Test Provider 1"
+            
+            # Test with no criteria
+            providers = api.get_provider_info()
+            assert len(providers) == 0
+            
+            # Test with non-existent values
+            assert api.get_provider_info(provider_id="non-existent") is None
+            assert len(api.get_provider_info(country_code="XX")) == 0
+            assert len(api.get_provider_info(name="NonExistent")) == 0
+    
+    finally:
+        if Path(test_dir).exists():
+            shutil.rmtree(test_dir)
+
+def test_get_provider_info_search_csv_mode(test_csv_content, mock_dataset_content):
+    """Test searching providers with get_provider_info in CSV mode."""
+    test_dir = "test_provider_info_csv"
+    api = MobilityAPI(test_dir, force_csv_mode=True)
+    
+    try:
+        # Mock CSV catalog download
+        with responses.RequestsMock() as rsps:
+            rsps.add(
+                responses.GET,
+                CSVCatalog.CATALOG_URL,
+                body=test_csv_content,
+                status=200
+            )
+            
+            # Test search by ID
+            provider_info = api.get_provider_info(provider_id="mdb-test-1")
+            assert provider_info is not None
+            assert provider_info["id"] == "mdb-test-1"
+            assert provider_info["provider"] == "Test Provider 1"
+            
+            # Test search by country
+            providers = api.get_provider_info(country_code="HU")
+            assert len(providers) == 2
+            assert providers[0]["id"] == "mdb-test-1"
+            assert providers[1]["id"] == "mdb-test-3"
+            
+            # Test search by name
+            providers = api.get_provider_info(name="Test Provider")
+            assert len(providers) == 3  # Should find Test Provider 1, 2, and 3
+            
+            # Test with no criteria
+            providers = api.get_provider_info()
+            assert len(providers) == 0
+            
+            # Test with non-existent values
+            assert api.get_provider_info(provider_id="non-existent") is None
+            assert len(api.get_provider_info(country_code="XX")) == 0
+            assert len(api.get_provider_info(name="NonExistent")) == 0
+            
+            # Test with inactive/deprecated providers
+            assert api.get_provider_info(provider_id="mdb-test-4") is None  # Inactive
+            assert api.get_provider_info(provider_id="mdb-test-5") is None  # Deprecated
+            assert api.get_provider_info(provider_id="mdb-test-6") is None  # Redirected
+            assert api.get_provider_info(provider_id="mdb-test-7") is None  # Non-GTFS
+    
+    finally:
+        if Path(test_dir).exists():
+            shutil.rmtree(test_dir) 
