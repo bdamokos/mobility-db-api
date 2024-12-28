@@ -10,7 +10,7 @@ A Python client for downloading GTFS files through the [Mobility Database](https
 
 ## Features
 
-- Search for GTFS providers by country or name
+- Search for GTFS providers by country, name or id
 - Download GTFS datasets from hosted or direct sources
 - Track dataset metadata and changes
 - Thread-safe and process-safe operations
