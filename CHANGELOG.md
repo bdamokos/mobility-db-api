@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- New `get_provider_by_id()` method that follows the naming convention of other provider search methods
+
+### Changed
+- Enhanced `get_provider_info()` to be the central provider search implementation:
+  - Now accepts optional search parameters: `provider_id`, `country_code`, and `name`
+  - Returns either a single provider (when searching by ID) or a list of providers (when searching by country or name)
+  - Powers all other provider search methods internally for better consistency
+  - Improved error handling and CSV fallback behavior
+
 ## [0.4.0] - 2024-12-27
 
 ### Added
