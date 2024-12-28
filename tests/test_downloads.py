@@ -286,7 +286,7 @@ def test_no_internet_no_cached_csv(monkeypatch):
             shutil.rmtree(test_dir)
 
 def test_api_error(monkeypatch):
-    """Test handling of API errors"""
+    """Test handling of API errors with CSV fallback"""
     def mock_get(*args, **kwargs):
         response = requests.Response()
         response.status_code = 500
@@ -302,9 +302,18 @@ def test_api_error(monkeypatch):
     monkeypatch.setattr(requests, "post", mock_post)
     api = MobilityAPI()
 
-    # Test provider search with API error
+    # Test provider search with API error - should fall back to CSV
     providers = api.get_providers_by_country("HU")
-    assert len(providers) == 0
+    assert len(providers) > 0  # Should get providers from CSV
+    assert api._use_csv is True  # Should switch to CSV mode after API error
+
+    # Create a new API instance to test with forced CSV mode
+    api_csv = MobilityAPI(force_csv_mode=True)
+    providers_csv = api_csv.get_providers_by_country("HU")
+    
+    # Results should be the same as the fallback
+    assert len(providers) == len(providers_csv)
+    assert [p['id'] for p in providers] == [p['id'] for p in providers_csv]
 
 def test_missing_feed_info():
     """Test handling of missing feed_info.txt"""
