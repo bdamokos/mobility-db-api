@@ -287,9 +287,19 @@ def test_no_internet_no_cached_csv(monkeypatch):
 
 def test_api_error(monkeypatch):
     """Test handling of API errors with CSV fallback"""
+    # Create a mock CSV content
+    csv_content = '''mdb_source_id,data_type,entity_type,location.country_code,location.subdivision_name,location.municipality,provider,name,note,feed_contact_email,static_reference,urls.direct_download,urls.authentication_type,urls.authentication_info,urls.api_key_parameter_name,urls.latest,urls.license,location.bounding_box.minimum_latitude,location.bounding_box.maximum_latitude,location.bounding_box.minimum_longitude,location.bounding_box.maximum_longitude,location.bounding_box.extracted_on,status,features,redirect.id,redirect.comment
+test-1,gtfs,,HU,Budapest,Budapest,Test Provider 1,,,,,http://test1.com/direct,,,,http://test1.com/latest,http://test1.com/license,,,,,,,,,
+test-2,gtfs,,HU,Debrecen,Debrecen,Test Provider 2,,,,,http://test2.com/direct,,,,http://test2.com/latest,http://test2.com/license,,,,,,,,,'''
+
     def mock_get(*args, **kwargs):
         response = requests.Response()
-        response.status_code = 500
+        
+        if "mobilitydatabase.org" in args[0]:  # API calls
+            response.status_code = 500
+        elif "share.mobilitydata.org" in args[0]:  # CSV download
+            response.status_code = 200
+            response._content = csv_content.encode()
         return response
 
     def mock_post(*args, **kwargs):
@@ -300,20 +310,31 @@ def test_api_error(monkeypatch):
 
     monkeypatch.setattr(requests, "get", mock_get)
     monkeypatch.setattr(requests, "post", mock_post)
-    api = MobilityAPI()
-
-    # Test provider search with API error - should fall back to CSV
-    providers = api.get_providers_by_country("HU")
-    assert len(providers) > 0  # Should get providers from CSV
-    assert api._use_csv is True  # Should switch to CSV mode after API error
-
-    # Create a new API instance to test with forced CSV mode
-    api_csv = MobilityAPI(force_csv_mode=True)
-    providers_csv = api_csv.get_providers_by_country("HU")
     
-    # Results should be the same as the fallback
-    assert len(providers) == len(providers_csv)
-    assert [p['id'] for p in providers] == [p['id'] for p in providers_csv]
+    # Use a fresh directory to ensure no cached CSV
+    test_dir = "test_api_error"
+    if Path(test_dir).exists():
+        shutil.rmtree(test_dir)
+    
+    try:
+        api = MobilityAPI(data_dir=test_dir)
+
+        # Test provider search with API error - should fall back to CSV
+        providers = api.get_providers_by_country("HU")
+        assert len(providers) > 0  # Should get providers from CSV
+        assert api._use_csv is True  # Should switch to CSV mode after API error
+
+        # Create a new API instance to test with forced CSV mode
+        api_csv = MobilityAPI(data_dir=test_dir, force_csv_mode=True)
+        providers_csv = api_csv.get_providers_by_country("HU")
+        
+        # Results should be the same as the fallback
+        assert len(providers) == len(providers_csv)
+        assert [p['id'] for p in providers] == [p['id'] for p in providers_csv]
+    
+    finally:
+        if Path(test_dir).exists():
+            shutil.rmtree(test_dir)
 
 def test_missing_feed_info():
     """Test handling of missing feed_info.txt"""
