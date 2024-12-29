@@ -1160,3 +1160,54 @@ def test_csv_fallback_with_cached(monkeypatch):
     finally:
         if Path(test_dir).exists():
             shutil.rmtree(test_dir)
+
+def test_io_error_handling(monkeypatch):
+    """Test handling of IOErrors during download and extraction."""
+    test_dir = "test_io_errors"
+    api = MobilityAPI(test_dir)
+    
+    # Mock the provider info response
+    def mock_get(*args, **kwargs):
+        response = requests.Response()
+        response.status_code = 200
+        if "gtfs_feeds/mdb-859" in args[0]:
+            response._content = json.dumps({
+                "provider": "Test Provider",
+                "latest_dataset": {
+                    "id": "test-dataset",
+                    "hosted_url": "http://example.com/test.zip"
+                }
+            }).encode()
+        else:
+            response._content = b"mock zip content"
+        return response
+    
+    monkeypatch.setattr(requests, "get", mock_get)
+    
+    try:
+        # Test IOError during zip file writing
+        def mock_open_write_error(*args, **kwargs):
+            if "wb" in args:
+                raise IOError("Disk full")
+            return open(*args, **kwargs)
+        
+        monkeypatch.setattr("builtins.open", mock_open_write_error)
+        result = api.download_latest_dataset("mdb-859")
+        assert result is None, "Should return None on write error"
+        
+        # Test IOError during extraction
+        monkeypatch.setattr("builtins.open", open)  # Reset open mock
+        def mock_extractall(*args, **kwargs):
+            raise IOError("Disk full during extraction")
+        
+        monkeypatch.setattr("zipfile.ZipFile.extractall", mock_extractall)
+        result = api.download_latest_dataset("mdb-859")
+        assert result is None, "Should return None on extraction error"
+        
+        # Verify cleanup
+        assert not any(Path(test_dir).glob("**/*.zip")), "Zip files should be cleaned up"
+        assert not any(Path(test_dir).glob("**/test-dataset")), "Extracted directory should be cleaned up"
+        
+    finally:
+        if Path(test_dir).exists():
+            shutil.rmtree(test_dir)
