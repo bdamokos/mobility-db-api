@@ -734,8 +734,14 @@ class MobilityAPI:
 
             # Save and process the zip file
             zip_file = provider_dir / f"{latest_dataset['id']}.zip"
-            with open(zip_file, "wb") as f:
-                f.write(response.content)
+            try:
+                with open(zip_file, "wb") as f:
+                    f.write(response.content)
+            except IOError as e:
+                self.logger.error(f"Failed to write zip file: {str(e)}")
+                if zip_file.exists():
+                    zip_file.unlink()
+                return None
 
             zip_size = zip_file.stat().st_size
             self.logger.info(f"Download completed in {download_time:.2f} seconds")
@@ -747,10 +753,17 @@ class MobilityAPI:
             # Extract dataset
             self.logger.info("Extracting dataset...")
             extract_dir = provider_dir / latest_dataset["id"]
-            start_time = time.time()
-            with zipfile.ZipFile(zip_file, "r") as zip_ref:
-                zip_ref.extractall(extract_dir)
-            extract_time = time.time() - start_time
+            try:
+                start_time = time.time()
+                with zipfile.ZipFile(zip_file, "r") as zip_ref:
+                    zip_ref.extractall(extract_dir)
+                extract_time = time.time() - start_time
+            except IOError as e:
+                self.logger.error(f"Failed to extract dataset: {str(e)}")
+                if extract_dir.exists():
+                    shutil.rmtree(extract_dir)
+                zip_file.unlink()
+                return None
 
             extracted_size = self._get_directory_size(extract_dir)
             self.logger.info(f"Extraction completed in {extract_time:.2f} seconds")
