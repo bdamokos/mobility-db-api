@@ -795,9 +795,11 @@ class MobilityAPI:
                 feed_end_date=feed_end_date,
             )
             self.datasets[dataset_key] = metadata
-            self._save_metadata()  # Save to main metadata file
+            # self._save_metadata()  # Save to main metadata file
             if download_dir:
                 self._save_metadata(base_dir)  # Save to custom directory metadata file
+            elif not download_dir:
+                self._save_metadata()  # Save to main data directory
 
             # Clean up old dataset if it exists
             if old_dataset_path and old_dataset_path.exists():
