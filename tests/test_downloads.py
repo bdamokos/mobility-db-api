@@ -1211,3 +1211,58 @@ def test_io_error_handling(monkeypatch):
     finally:
         if Path(test_dir).exists():
             shutil.rmtree(test_dir)
+
+def test_metadata_saving_location(monkeypatch):
+    """Test that metadata is saved only in the correct location based on download directory."""
+    # Create mock response
+    def mock_get(*args, **kwargs):
+        response = requests.Response()
+        response.status_code = 200
+        if "gtfs_feeds/mdb-859" in args[0]:
+            response._content = json.dumps({
+                "provider": "Test Provider",
+                "latest_dataset": {
+                    "id": "test-dataset",
+                    "hosted_url": "http://example.com/test.zip"
+                }
+            }).encode()
+        else:
+            # Create a valid zip file
+            zip_buffer = io.BytesIO()
+            with zipfile.ZipFile(zip_buffer, 'w') as zf:
+                zf.writestr('test.txt', 'test content')
+            response._content = zip_buffer.getvalue()
+        return response
+    
+    monkeypatch.setattr(requests, "get", mock_get)
+    
+    # Test with custom download directory
+    custom_dir = Path("test_custom_metadata")
+    default_dir = Path("test_default_metadata")
+    
+    try:
+        api = MobilityAPI(data_dir=default_dir)
+        
+        # Download to custom directory
+        dataset_path = api.download_latest_dataset("mdb-859", download_dir=str(custom_dir))
+        assert dataset_path is not None
+        
+        # Check metadata files
+        custom_metadata = custom_dir / "datasets_metadata.json"
+        default_metadata = default_dir / "datasets_metadata.json"
+        
+        assert custom_metadata.exists(), "Metadata should exist in custom directory"
+        assert not default_metadata.exists(), "Metadata should not exist in default directory"
+        
+        # Verify metadata content in custom directory
+        with open(custom_metadata) as f:
+            metadata = json.load(f)
+            assert len(metadata) == 1, "Should have one dataset in metadata"
+            assert list(metadata.values())[0]["download_path"].startswith(str(custom_dir))
+        
+    finally:
+        # Clean up
+        if custom_dir.exists():
+            shutil.rmtree(custom_dir)
+        if default_dir.exists():
+            shutil.rmtree(default_dir)
