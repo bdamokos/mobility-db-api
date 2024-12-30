@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- External GTFS support:
+  - New `ExternalGTFSAPI` class for handling GTFS files not in Mobility Database
+  - Automatic provider ID generation with `ext-` prefix
+  - Agency name extraction from agency.txt
+  - Smart file matching based on content hash
+  - Support for multiple agencies in a single feed
+  - Versioning support with automatic cleanup of old datasets
+
 ## [0.4.2] - 2024-12-30
 ### Fixed
 - Removed redundant metadata saving when using custom download directory

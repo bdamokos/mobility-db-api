@@ -124,4 +124,54 @@ except DownloadError as e:
     print(f"Download failed: {e}")
 except MetadataError as e:
     print(f"Metadata error: {e}")
-``` 
+```
+
+## External GTFS Files
+
+```python
+from mobility_db_api import ExternalGTFSAPI
+from pathlib import Path
+
+# Initialize API
+api = ExternalGTFSAPI()
+
+# Extract GTFS with automatic provider ID and name from agency.txt
+dataset_path = api.extract_gtfs(
+    zip_path=Path("gtfs_files/agency1.zip")
+)
+
+# Extract with specific provider name
+dataset_path = api.extract_gtfs(
+    zip_path=Path("gtfs_files/agency2.zip"),
+    provider_name="My Transit Agency"
+)
+
+# Update existing provider's dataset
+dataset_path = api.extract_gtfs(
+    zip_path=Path("gtfs_files/agency1_updated.zip"),
+    provider_id="ext-1"  # Use an existing provider ID
+)
+
+# Extract to custom directory
+dataset_path = api.extract_gtfs(
+    zip_path=Path("gtfs_files/agency3.zip"),
+    download_dir="custom_downloads"
+)
+
+# List all datasets (including external ones)
+datasets = api.list_downloaded_datasets()
+for dataset in datasets:
+    print(f"Provider: {dataset.provider_name} ({dataset.provider_id})")
+    print(f"Dataset: {dataset.dataset_id}")
+    print(f"Path: {dataset.download_path}")
+```
+
+The `ExternalGTFSAPI` class extends `MobilityAPI` to handle GTFS files not in the Mobility Database. Key features:
+
+- Automatic provider ID generation with `ext-` prefix
+- Agency name extraction from agency.txt (supports multiple agencies)
+- Smart file matching based on content hash
+- Versioning support with automatic cleanup of old datasets
+- All base class methods (list, delete, etc.) work with external datasets
+
+For more examples, see [examples/external_gtfs_example.py](examples/external_gtfs_example.py). 
