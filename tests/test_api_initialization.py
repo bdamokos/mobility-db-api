@@ -42,9 +42,11 @@ def write_metadata_process(data_dir: str, dataset_id: str, delay: float = 0):
         maximum_longitude=None,
     )
     
+    print(f"Process {dataset_id} starting to write metadata.")
     # Add to API's datasets and save
     api.datasets[f"test_dataset_{dataset_id}"] = metadata
     api._save_metadata()  # This will merge with existing metadata
+    print(f"Process {dataset_id} finished writing metadata.")
 
 def read_metadata_process(data_dir: str):
     """Helper function to read metadata from a separate process"""
