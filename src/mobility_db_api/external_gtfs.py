@@ -80,12 +80,13 @@ class ExternalGTFSAPI(MobilityAPI):
         If provider_name is provided, requires both hash and name to match.
         """
         for key, meta in self.datasets.items():
-            if meta.file_hash == file_hash:
-                # If provider_name is provided, it must match exactly
-                if provider_name is not None:
-                    if meta.provider_name == provider_name:
-                        return meta.provider_id
-                else:
+            if provider_name is not None:
+                # If provider name is provided, only match by name
+                if meta.provider_name == provider_name:
+                    return meta.provider_id
+            else:
+                # If no provider name is provided, match by hash
+                if meta.file_hash == file_hash:
                     return meta.provider_id
         return None
 
@@ -115,9 +116,24 @@ class ExternalGTFSAPI(MobilityAPI):
             # Calculate file hash
             file_hash = self._calculate_file_hash(zip_path)
 
-            # Try to find existing provider by hash and name if provided
+            # Try to find existing provider by name or generate new ID
             if not provider_id:
-                provider_id = self._find_provider_by_hash_and_name(file_hash, provider_name)
+                # First, try to find an exact match by provider name if provided
+                if provider_name:
+                    for key, meta in self.datasets.items():
+                        if meta.provider_name == provider_name:
+                            provider_id = meta.provider_id
+                            break
+                
+                # If no match by name, try to find by hash (only if name not provided)
+                if not provider_id and not provider_name:
+                    for key, meta in self.datasets.items():
+                        if meta.file_hash == file_hash:
+                            provider_id = meta.provider_id
+                            provider_name = meta.provider_name
+                            break
+                
+                # If still no match, generate new ID
                 if not provider_id:
                     provider_id = self._get_next_provider_id()
 
@@ -158,6 +174,15 @@ class ExternalGTFSAPI(MobilityAPI):
             # Get feed dates
             feed_start_date, feed_end_date = self._get_feed_dates(dataset_dir)
 
+            # Find old dataset for this provider/name combination
+            old_dataset_path = None
+            old_key = None
+            for key, meta in list(self.datasets.items()):
+                if meta.provider_id == provider_id and meta.provider_name == provider_name:
+                    old_dataset_path = meta.download_path
+                    old_key = key
+                    break
+
             # Create metadata
             metadata = DatasetMetadata(
                 provider_id=provider_id,
@@ -171,21 +196,17 @@ class ExternalGTFSAPI(MobilityAPI):
                 download_path=dataset_dir,
                 feed_start_date=feed_start_date,
                 feed_end_date=feed_end_date,
+                minimum_latitude=None,
+                maximum_latitude=None,
+                minimum_longitude=None,
+                maximum_longitude=None,
             )
 
-            # Save metadata
+            # Add new dataset
             dataset_key = f"{provider_id}_{dataset_id}"
-            
-            # Remove old dataset if it exists and we have an exact match
-            # (either by explicit provider_id or by hash+name match)
-            old_dataset_path = None
-            for key, meta in list(self.datasets.items()):
-                if meta.provider_id == provider_id:
-                    if (provider_name is None or meta.provider_name == provider_name):
-                        old_dataset_path = meta.download_path
-                        del self.datasets[key]
-
             self.datasets[dataset_key] = metadata
+
+            # Save metadata with new dataset
             if download_dir:
                 self._save_metadata(base_dir)
             else:
@@ -194,7 +215,31 @@ class ExternalGTFSAPI(MobilityAPI):
             # Clean up old dataset if it exists
             if old_dataset_path and old_dataset_path.exists():
                 self.logger.info(f"Cleaning up old dataset at {old_dataset_path}")
-                shutil.rmtree(old_dataset_path)
+                try:
+                    shutil.rmtree(old_dataset_path)
+                    # Only remove old dataset from metadata if cleanup was successful
+                    if old_key and old_key in self.datasets:
+                        # Save the old provider name before deletion
+                        old_provider_name = self.datasets[old_key].provider_name
+                        del self.datasets[old_key]
+                        # Restore any other datasets with the same provider name
+                        for key, meta in list(self.datasets.items()):
+                            if meta.provider_name == old_provider_name and key != old_key:
+                                self.datasets[key] = meta
+                        if download_dir:
+                            self._save_metadata(base_dir)
+                        else:
+                            self._save_metadata()
+                except Exception as e:
+                    self.logger.error(f"Failed to clean up old dataset: {str(e)}")
+                    # If cleanup failed, remove the new dataset from metadata
+                    if dataset_key in self.datasets:
+                        del self.datasets[dataset_key]
+                        if download_dir:
+                            self._save_metadata(base_dir)
+                        else:
+                            self._save_metadata()
+                    return None
 
             return dataset_dir
 

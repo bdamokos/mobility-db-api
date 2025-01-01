@@ -35,6 +35,10 @@ class DatasetMetadata:
     download_path: Path
     feed_start_date: Optional[str] = None
     feed_end_date: Optional[str] = None
+    minimum_latitude: Optional[float] = None
+    maximum_latitude: Optional[float] = None
+    minimum_longitude: Optional[float] = None
+    maximum_longitude: Optional[float] = None
 
 
 class MetadataLock:
@@ -177,6 +181,10 @@ class MobilityAPI:
                             download_path=Path(item["download_path"]),
                             feed_start_date=item.get("feed_start_date"),
                             feed_end_date=item.get("feed_end_date"),
+                            minimum_latitude=item.get("minimum_latitude"),
+                            maximum_latitude=item.get("maximum_latitude"),
+                            minimum_longitude=item.get("minimum_longitude"),
+                            maximum_longitude=item.get("maximum_longitude"),
                         )
                     # Update last modification time after successful load
                     self._last_metadata_mtime = self._get_metadata_mtime()
@@ -234,6 +242,10 @@ class MobilityAPI:
                             "download_path": str(meta.download_path),
                             "feed_start_date": meta.feed_start_date,
                             "feed_end_date": meta.feed_end_date,
+                            "minimum_latitude": meta.minimum_latitude,
+                            "maximum_latitude": meta.maximum_latitude,
+                            "minimum_longitude": meta.minimum_longitude,
+                            "maximum_longitude": meta.maximum_longitude,
                         }
                         for key, meta in target_datasets.items()
                     }
@@ -781,6 +793,10 @@ class MobilityAPI:
             zip_file.unlink()
 
             # Save metadata
+            bounding_box = None
+            if latest_dataset and isinstance(latest_dataset, dict):
+                bounding_box = latest_dataset.get("bounding_box", {})
+
             metadata = DatasetMetadata(
                 provider_id=provider_id,
                 provider_name=provider_name,
@@ -793,6 +809,10 @@ class MobilityAPI:
                 download_path=extract_dir,
                 feed_start_date=feed_start_date,
                 feed_end_date=feed_end_date,
+                minimum_latitude=bounding_box.get("minimum_latitude") if bounding_box else None,
+                maximum_latitude=bounding_box.get("maximum_latitude") if bounding_box else None,
+                minimum_longitude=bounding_box.get("minimum_longitude") if bounding_box else None,
+                maximum_longitude=bounding_box.get("maximum_longitude") if bounding_box else None,
             )
             self.datasets[dataset_key] = metadata
             # self._save_metadata()  # Save to main metadata file

@@ -35,7 +35,11 @@ def write_metadata_process(data_dir: str, dataset_id: str, delay: float = 0):
         is_direct_source=False,
         api_provided_hash=None,
         file_hash="abc123",
-        download_path=download_path
+        download_path=download_path,
+        minimum_latitude=None,
+        maximum_latitude=None,
+        minimum_longitude=None,
+        maximum_longitude=None,
     )
     
     # Add to API's datasets and save

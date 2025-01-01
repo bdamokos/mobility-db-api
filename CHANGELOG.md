@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0b0] - 2025-01-01
 ### Added
 - External GTFS support:
   - New `ExternalGTFSAPI` class for handling GTFS files not in Mobility Database
@@ -15,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Smart file matching based on content hash
   - Support for multiple agencies in a single feed
   - Versioning support with automatic cleanup of old datasets
+### Changed
+- The saved metadata now contains the geographical bounding boxes of the dataset from Mobility Database. It is not implemented yet for external GTFS feeds and downloads from the CSV catalogue.
 
 ## [0.4.2] - 2024-12-30
 ### Fixed
