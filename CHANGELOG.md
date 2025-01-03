@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Bounding box calculation from stops.txt for direct source GTFS files
+- Support for bounding box information from CSV catalog and API
+- Graceful handling of missing or invalid coordinates in stops.txt
+- New `force_bounding_box_calculation` flag to force recalculation of bounding box from stops.txt
+- Automatic fallback to stops.txt calculation when bounding box is missing from API/CSV
+
+### Changed
+- Enhanced bounding box handling with clear calculation priority
+- Improved logging for bounding box calculation sources
+- Better error handling for coordinate validation
+
 ## [0.5.0b0] - 2025-01-01
 ### Added
 - External GTFS support:

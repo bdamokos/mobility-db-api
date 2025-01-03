@@ -193,6 +193,9 @@ class ExternalGTFSAPI(MobilityAPI):
             # Get feed dates
             feed_start_date, feed_end_date = self._get_feed_dates(dataset_dir)
 
+            # Calculate bounding box
+            min_lat, max_lat, min_lon, max_lon = self._calculate_bounding_box(dataset_dir)
+
             # Create metadata
             metadata = DatasetMetadata(
                 provider_id=provider_id,
@@ -206,10 +209,10 @@ class ExternalGTFSAPI(MobilityAPI):
                 download_path=dataset_dir,
                 feed_start_date=feed_start_date,
                 feed_end_date=feed_end_date,
-                minimum_latitude=None,
-                maximum_latitude=None,
-                minimum_longitude=None,
-                maximum_longitude=None,
+                minimum_latitude=min_lat,
+                maximum_latitude=max_lat,
+                minimum_longitude=min_lon,
+                maximum_longitude=max_lon,
             )
 
             # Add new dataset

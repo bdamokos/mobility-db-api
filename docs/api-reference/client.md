@@ -383,4 +383,99 @@ providers = api_csv.get_providers_by_country("HU")
 # Custom data directory
 api = MobilityAPI(data_dir="custom/path")
 dataset = api.download_latest_dataset("mdb-123")
+```
+
+### Features
+
+- Search for GTFS providers by country code or name
+- Download and extract GTFS datasets
+- Track dataset metadata including:
+  - Feed validity dates from feed_info.txt
+  - Geographical bounding box from stops.txt
+  - Dataset hashes for version control
+- Automatic fallback to CSV catalog when API is unavailable
+- Support for direct source downloads
+
+### Metadata
+
+The client tracks various metadata for each downloaded dataset:
+
+- `provider_id`: Unique identifier of the provider
+- `provider_name`: Human-readable name of the provider
+- `dataset_id`: Unique identifier of the dataset
+- `download_date`: When the dataset was downloaded
+- `source_url`: URL or path where the dataset was downloaded from
+- `is_direct_source`: Whether the dataset was downloaded directly from the provider
+- `api_provided_hash`: Hash provided by the Mobility Database API (if available)
+- `file_hash`: SHA-256 hash of the downloaded file
+- `download_path`: Path where the dataset is stored
+- `feed_start_date`: Start date from feed_info.txt (YYYYMMDD format)
+- `feed_end_date`: End date from feed_info.txt (YYYYMMDD format)
+- `minimum_latitude`: Southern boundary of the dataset's coverage area
+- `maximum_latitude`: Northern boundary of the dataset's coverage area
+- `minimum_longitude`: Western boundary of the dataset's coverage area
+- `maximum_longitude`: Eastern boundary of the dataset's coverage area
+
+### Bounding Box Calculation
+
+The client automatically calculates geographical bounding boxes for datasets:
+
+- For datasets from the Mobility Database API, it uses the bounding box provided by the API
+- For datasets from the CSV catalog, it uses the bounding box information from the catalog
+- For direct source downloads and external GTFS files, it calculates the bounding box from stops.txt
+- The calculation handles missing or invalid coordinates gracefully
+- Coordinates are validated to be within valid ranges (-90/90 for latitude, -180/180 for longitude)
+
+### Example Usage
+
+```python
+from mobility_db_api import MobilityAPI
+
+# Initialize the client
+api = MobilityAPI()
+
+# Download a dataset
+dataset_path = api.download_latest_dataset("mdb-123")
+
+# Get dataset metadata including bounding box
+datasets = api.list_downloaded_datasets()
+for dataset in datasets:
+    print(f"Dataset: {dataset.provider_name}")
+    if dataset.minimum_latitude is not None:
+        print(f"Coverage area: ({dataset.minimum_latitude}, {dataset.minimum_longitude}) to "
+              f"({dataset.maximum_latitude}, {dataset.maximum_longitude})")
+```
+
+## ExternalGTFSAPI
+
+Extension of MobilityAPI for handling external GTFS files not in the Mobility Database.
+
+### Features
+
+- Extract and process external GTFS ZIP files
+- Generate unique provider IDs for external sources
+- Extract agency names from GTFS files
+- Handle versioning of datasets
+- Match files to existing providers
+- Calculate bounding boxes from stops.txt
+
+### Example Usage
+
+```python
+from mobility_db_api import ExternalGTFSAPI
+from pathlib import Path
+
+# Initialize the client
+api = ExternalGTFSAPI()
+
+# Extract a GTFS file
+dataset_path = api.extract_gtfs(Path("gtfs.zip"))
+
+# Get dataset metadata including bounding box
+datasets = api.list_downloaded_datasets()
+for dataset in datasets:
+    print(f"Dataset: {dataset.provider_name}")
+    if dataset.minimum_latitude is not None:
+        print(f"Coverage area: ({dataset.minimum_latitude}, {dataset.minimum_longitude}) to "
+              f"({dataset.maximum_latitude}, {dataset.maximum_longitude})")
 ``` 

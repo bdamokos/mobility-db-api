@@ -288,3 +288,89 @@ def test_extract_gtfs_custom_dir(test_gtfs_content):
             shutil.rmtree(base_dir)
         if custom_dir.exists():
             shutil.rmtree(custom_dir) 
+
+def test_extract_gtfs_with_bounding_box():
+    """Test GTFS extraction with bounding box calculation."""
+    test_dir = Path("test_external_bbox")
+    api = ExternalGTFSAPI(data_dir=str(test_dir))
+    
+    try:
+        # Create a GTFS file with stops.txt
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w') as zip_file:
+            zip_file.writestr('agency.txt', 
+                'agency_id,agency_name,agency_url,agency_timezone\n'
+                '1,Test Agency,http://test.com,Europe/London'
+            )
+            zip_file.writestr('stops.txt',
+                'stop_id,stop_name,stop_lat,stop_lon\n'
+                '1,Stop 1,47.1234,-122.4567\n'
+                '2,Stop 2,47.5678,-122.6789\n'
+                '3,Stop 3,47.9012,-122.8901'
+            )
+        
+        # Save the ZIP file
+        test_dir.mkdir(exist_ok=True)
+        zip_path = test_dir / "test.zip"
+        with open(zip_path, "wb") as f:
+            f.write(zip_buffer.getvalue())
+        
+        # Extract the GTFS file
+        dataset_path = api.extract_gtfs(zip_path)
+        assert dataset_path is not None
+        assert dataset_path.exists()
+        
+        # Check metadata
+        datasets = api.list_downloaded_datasets()
+        assert len(datasets) == 1
+        dataset = datasets[0]
+        
+        # Verify bounding box
+        assert dataset.minimum_latitude == 47.1234
+        assert dataset.maximum_latitude == 47.9012
+        assert dataset.minimum_longitude == -122.8901
+        assert dataset.maximum_longitude == -122.4567
+        
+    finally:
+        if test_dir.exists():
+            shutil.rmtree(test_dir)
+
+def test_extract_gtfs_missing_stops():
+    """Test GTFS extraction with missing stops.txt."""
+    test_dir = Path("test_external_no_stops")
+    api = ExternalGTFSAPI(data_dir=str(test_dir))
+    
+    try:
+        # Create a GTFS file without stops.txt
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w') as zip_file:
+            zip_file.writestr('agency.txt', 
+                'agency_id,agency_name,agency_url,agency_timezone\n'
+                '1,Test Agency,http://test.com,Europe/London'
+            )
+        
+        # Save the ZIP file
+        test_dir.mkdir(exist_ok=True)
+        zip_path = test_dir / "test.zip"
+        with open(zip_path, "wb") as f:
+            f.write(zip_buffer.getvalue())
+        
+        # Extract the GTFS file
+        dataset_path = api.extract_gtfs(zip_path)
+        assert dataset_path is not None
+        assert dataset_path.exists()
+        
+        # Check metadata
+        datasets = api.list_downloaded_datasets()
+        assert len(datasets) == 1
+        dataset = datasets[0]
+        
+        # Verify bounding box is None
+        assert dataset.minimum_latitude is None
+        assert dataset.maximum_latitude is None
+        assert dataset.minimum_longitude is None
+        assert dataset.maximum_longitude is None
+        
+    finally:
+        if test_dir.exists():
+            shutil.rmtree(test_dir) 
