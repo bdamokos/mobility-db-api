@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 import shutil
 from .logger import setup_logger
 from .csv_catalog import CSVCatalog
+from .utils import calculate_bounding_box
 
 # Load environment variables
 load_dotenv()
@@ -601,28 +602,19 @@ class MobilityAPI:
         provider_id: str,
         download_dir: Optional[str] = None,
         use_direct_source: bool = False,
+        force_bounding_box_calculation: bool = False,
     ) -> Optional[Path]:
-        """Download the latest GTFS dataset from a provider.
-
-        This method handles both hosted and direct source downloads. It includes
-        progress tracking, metadata collection, and automatic extraction of
-        downloaded datasets.
+        """
+        Download the latest dataset for a provider.
 
         Args:
-            provider_id: The unique identifier of the provider
-            download_dir: Optional custom directory to store the dataset
-            use_direct_source: Whether to use direct download URL instead of
-                             hosted dataset. Defaults to False.
+            provider_id: The ID of the provider to download the dataset for.
+            download_dir: Optional directory to download the dataset to.
+            use_direct_source: Whether to use direct download URL instead of hosted dataset.
+            force_bounding_box_calculation: Whether to force recalculation of the bounding box from stops.txt.
 
         Returns:
-            Path to the extracted dataset directory if successful, None if download fails.
-            The directory contains the extracted GTFS files (txt files).
-
-        Example:
-            >>> api = MobilityAPI()
-            >>> dataset_path = api.download_latest_dataset("tld-5862")
-            >>> print(dataset_path)
-            PosixPath('mobility_datasets/volanbus_20240315')
+            The path to the extracted dataset directory, or None if the download failed.
         """
         try:
             # Get provider info based on mode
@@ -651,7 +643,10 @@ class MobilityAPI:
                         self.logger.info("Falling back to CSV catalog")
                         self._use_csv = True
                         return self.download_latest_dataset(
-                            provider_id, download_dir, use_direct_source
+                            provider_id,
+                            download_dir,
+                            use_direct_source,
+                            force_bounding_box_calculation,
                         )
                     return None
                 provider_data = response.json()
@@ -734,6 +729,11 @@ class MobilityAPI:
                     # Remove old dataset from metadata now
                     del self.datasets[key]
 
+            # Delete old datasets if they exist
+            for key in list(self.datasets.keys()):
+                if key.startswith(provider_id):
+                    del self.datasets[key]
+
             # Download dataset
             self.logger.info(f"Downloading dataset from {download_url}")
             start_time = time.time()
@@ -762,41 +762,103 @@ class MobilityAPI:
             # Calculate file hash
             file_hash = self._calculate_file_hash(zip_file)
 
+            # Check if dataset already exists and hash matches
+            if (
+                dataset_key in self.datasets
+                and self.datasets[dataset_key].file_hash == file_hash
+                and not force_bounding_box_calculation
+            ):
+                self.logger.info(
+                    f"Dataset {dataset_key} already exists and hash matches"
+                )
+                return self.datasets[dataset_key].download_path
+
+            # Create extraction directory
+            provider_name_safe = self._sanitize_provider_name(provider_name)
+            extract_dir = base_dir / f"{provider_id}_{provider_name_safe}" / latest_dataset["id"]
+            extract_dir.mkdir(parents=True, exist_ok=True)
+
             # Extract dataset
             self.logger.info("Extracting dataset...")
-            extract_dir = provider_dir / latest_dataset["id"]
-            try:
-                start_time = time.time()
-                with zipfile.ZipFile(zip_file, "r") as zip_ref:
-                    zip_ref.extractall(extract_dir)
-                extract_time = time.time() - start_time
-            except IOError as e:
-                self.logger.error(f"Failed to extract dataset: {str(e)}")
-                if extract_dir.exists():
-                    shutil.rmtree(extract_dir)
-                zip_file.unlink()
-                return None
+            start_time = time.time()
+            with zipfile.ZipFile(zip_file, "r") as zip_ref:
+                zip_ref.extractall(extract_dir)
+            end_time = time.time()
+            self.logger.info(
+                f"Extraction completed in {end_time - start_time:.2f} seconds"
+            )
 
-            extracted_size = self._get_directory_size(extract_dir)
-            self.logger.info(f"Extraction completed in {extract_time:.2f} seconds")
+            # Get extracted size
+            extracted_size = sum(
+                f.stat().st_size for f in extract_dir.rglob("*") if f.is_file()
+            )
             self.logger.info(f"Extracted size: {extracted_size / 1024 / 1024:.2f} MB")
 
-            # Get feed dates from feed_info.txt
-            feed_start_date, feed_end_date = self._get_feed_dates(extract_dir)
+            # Get feed validity period
+            feed_start_date = None
+            feed_end_date = None
+            feed_info_path = extract_dir / "feed_info.txt"
+            if feed_info_path.exists():
+                try:
+                    with open(feed_info_path, "r", encoding="utf-8") as f:
+                        reader = csv.DictReader(f)
+                        for row in reader:
+                            feed_start_date = row.get("feed_start_date")
+                            feed_end_date = row.get("feed_end_date")
+                            break
+                except Exception as e:
+                    self.logger.warning(f"Failed to read feed_info.txt: {e}")
             if feed_start_date and feed_end_date:
                 self.logger.info(
                     f"Feed validity period: {feed_start_date} to {feed_end_date}"
                 )
+
+            # Get bounding box information
+            min_lat = None
+            max_lat = None
+            min_lon = None
+            max_lon = None
+
+            if not force_bounding_box_calculation:
+                bounding_box = None
+                if latest_dataset and isinstance(latest_dataset, dict):
+                    bounding_box = latest_dataset.get("bounding_box", {})
+                if bounding_box:
+                    min_lat = bounding_box.get("minimum_latitude")
+                    max_lat = bounding_box.get("maximum_latitude")
+                    min_lon = bounding_box.get("minimum_longitude")
+                    max_lon = bounding_box.get("maximum_longitude")
+                    self.logger.info(
+                        f"Using bounding box from API/CSV: ({min_lat}, {min_lon}) to ({max_lat}, {max_lon})"
+                    )
+
+            # Calculate bounding box from stops.txt if needed or forced
+            if force_bounding_box_calculation or (
+                min_lat is None
+                or max_lat is None
+                or min_lon is None
+                or max_lon is None
+            ):
+                try:
+                    stops_path = extract_dir / "stops.txt"
+                    if stops_path.exists():
+                        bbox = calculate_bounding_box(stops_path)
+                        if bbox:
+                            min_lat = bbox.minimum_latitude
+                            max_lat = bbox.maximum_latitude
+                            min_lon = bbox.minimum_longitude
+                            max_lon = bbox.maximum_longitude
+                            self.logger.info(
+                                f"{'Recalculated' if force_bounding_box_calculation else 'Calculated'} bounding box from stops.txt: ({min_lat}, {min_lon}) to ({max_lat}, {max_lon})"
+                            )
+                except Exception as e:
+                    self.logger.warning(f"Failed to calculate bounding box: {e}")
 
             # Clean up zip file
             self.logger.info("Cleaning up downloaded zip file...")
             zip_file.unlink()
 
             # Save metadata
-            bounding_box = None
-            if latest_dataset and isinstance(latest_dataset, dict):
-                bounding_box = latest_dataset.get("bounding_box", {})
-
             metadata = DatasetMetadata(
                 provider_id=provider_id,
                 provider_name=provider_name,
@@ -809,13 +871,12 @@ class MobilityAPI:
                 download_path=extract_dir,
                 feed_start_date=feed_start_date,
                 feed_end_date=feed_end_date,
-                minimum_latitude=bounding_box.get("minimum_latitude") if bounding_box else None,
-                maximum_latitude=bounding_box.get("maximum_latitude") if bounding_box else None,
-                minimum_longitude=bounding_box.get("minimum_longitude") if bounding_box else None,
-                maximum_longitude=bounding_box.get("maximum_longitude") if bounding_box else None,
+                minimum_latitude=min_lat,
+                maximum_latitude=max_lat,
+                minimum_longitude=min_lon,
+                maximum_longitude=max_lon,
             )
             self.datasets[dataset_key] = metadata
-            # self._save_metadata()  # Save to main metadata file
             if download_dir:
                 self._save_metadata(base_dir)  # Save to custom directory metadata file
             elif not download_dir:
@@ -1051,6 +1112,20 @@ class MobilityAPI:
                 self._cleanup_empty_provider_dir(provider_dir)
 
         return success
+
+    def _calculate_bounding_box(
+        self, dataset_dir: Path
+    ) -> Tuple[Optional[float], Optional[float], Optional[float], Optional[float]]:
+        """Calculate the bounding box from stops.txt in a GTFS dataset.
+
+        Args:
+            dataset_dir: Path to the GTFS directory containing stops.txt
+
+        Returns:
+            Tuple of (minimum_latitude, maximum_latitude, minimum_longitude, maximum_longitude)
+            Returns (None, None, None, None) if coordinates cannot be extracted
+        """
+        return calculate_bounding_box(dataset_dir)
 
 
 if __name__ == "__main__":
