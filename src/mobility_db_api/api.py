@@ -842,12 +842,8 @@ class MobilityAPI:
                 try:
                     stops_path = extract_dir / "stops.txt"
                     if stops_path.exists():
-                        bbox = calculate_bounding_box(stops_path)
-                        if bbox:
-                            min_lat = bbox.minimum_latitude
-                            max_lat = bbox.maximum_latitude
-                            min_lon = bbox.minimum_longitude
-                            max_lon = bbox.maximum_longitude
+                        min_lat, max_lat, min_lon, max_lon = calculate_bounding_box(extract_dir)
+                        if min_lat is not None:
                             self.logger.info(
                                 f"{'Recalculated' if force_bounding_box_calculation else 'Calculated'} bounding box from stops.txt: ({min_lat}, {min_lon}) to ({max_lat}, {max_lon})"
                             )
@@ -1112,20 +1108,6 @@ class MobilityAPI:
                 self._cleanup_empty_provider_dir(provider_dir)
 
         return success
-
-    def _calculate_bounding_box(
-        self, dataset_dir: Path
-    ) -> Tuple[Optional[float], Optional[float], Optional[float], Optional[float]]:
-        """Calculate the bounding box from stops.txt in a GTFS dataset.
-
-        Args:
-            dataset_dir: Path to the GTFS directory containing stops.txt
-
-        Returns:
-            Tuple of (minimum_latitude, maximum_latitude, minimum_longitude, maximum_longitude)
-            Returns (None, None, None, None) if coordinates cannot be extracted
-        """
-        return calculate_bounding_box(dataset_dir)
 
 
 if __name__ == "__main__":

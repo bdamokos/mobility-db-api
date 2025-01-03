@@ -5,6 +5,7 @@ import csv
 import zipfile
 import shutil
 from .api import MobilityAPI, DatasetMetadata
+from .utils import calculate_bounding_box
 import json
 
 
@@ -194,7 +195,7 @@ class ExternalGTFSAPI(MobilityAPI):
             feed_start_date, feed_end_date = self._get_feed_dates(dataset_dir)
 
             # Calculate bounding box
-            min_lat, max_lat, min_lon, max_lon = self._calculate_bounding_box(dataset_dir)
+            min_lat, max_lat, min_lon, max_lon = calculate_bounding_box(dataset_dir)
 
             # Create metadata
             metadata = DatasetMetadata(
