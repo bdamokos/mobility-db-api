@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2025-01-03
 ### Added
 - Bounding box calculation from stops.txt for direct source GTFS files
 - Support for bounding box information from CSV catalog and API
