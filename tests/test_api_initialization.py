@@ -8,6 +8,8 @@ import json
 import threading
 from datetime import datetime
 from mobility_db_api.api import MobilityAPI, MetadataLock, DatasetMetadata
+import zipfile
+import io
 
 def create_api_and_write_marker(data_dir: str, marker_value: str):
     """Helper function for multiprocessing test"""
@@ -270,3 +272,63 @@ def test_concurrent_reads(test_dirs):
     for p in processes:
         p.join()
         assert p.exitcode == 0  # Verify each process completed successfully
+
+@pytest.fixture
+def test_gtfs_content():
+    """Create a mock GTFS dataset."""
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, 'w') as zip_file:
+        zip_file.writestr('stops.txt', 
+            'stop_id,stop_name,stop_lat,stop_lon\n'
+            '1,Stop 1,47.1234,-122.4567\n'
+            '2,Stop 2,47.5678,-122.6789\n'
+            '3,Stop 3,47.9012,-122.8901'
+        )
+    return zip_buffer.getvalue()
+
+def test_force_bounding_box_calculation(test_gtfs_content):
+    """Test forcing bounding box calculation from stops.txt."""
+    test_dir = Path("test_force_bbox")
+    api = MobilityAPI(data_dir=str(test_dir))
+
+    try:
+        # Create a temporary GTFS file
+        test_dir.mkdir(exist_ok=True)
+        zip_path = test_dir / "test.zip"
+        with open(zip_path, "wb") as f:
+            f.write(test_gtfs_content)
+
+        # First download without forcing calculation
+        dataset_path = api.download_latest_dataset(
+            "mdb-123",
+            force_bounding_box_calculation=False
+        )
+        assert dataset_path is not None
+
+        # Get initial bounding box
+        datasets = api.list_downloaded_datasets()
+        assert len(datasets) == 1
+        initial_dataset = datasets[0]
+
+        # Download again with forced calculation
+        dataset_path = api.download_latest_dataset(
+            "mdb-123",
+            force_bounding_box_calculation=True
+        )
+        assert dataset_path is not None
+
+        # Get recalculated bounding box
+        datasets = api.list_downloaded_datasets()
+        assert len(datasets) == 1
+        recalc_dataset = datasets[0]
+
+        # Verify that bounding box was recalculated
+        assert recalc_dataset.minimum_latitude == 42.737182450611
+        assert recalc_dataset.maximum_latitude == 43.695870028905
+        assert recalc_dataset.minimum_longitude == -124.17377849378
+        assert recalc_dataset.maximum_longitude == -123.01875661
+
+    finally:
+        # Clean up
+        if test_dir.exists():
+            shutil.rmtree(test_dir)

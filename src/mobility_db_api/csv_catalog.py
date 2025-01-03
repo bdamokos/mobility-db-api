@@ -114,7 +114,12 @@ class CSVCatalog:
                         "latest_dataset": {
                             "id": f"mdb-{row.get('mdb_source_id', '')}-{datetime.now().strftime('%Y%m%d%H%M')}",
                             "hosted_url": row.get("urls.latest", ""),
-                            "bounding_box": row.get("bounding_box"),
+                            "bounding_box": {
+                                "minimum_latitude": float(row["bounding_box.minimum_latitude"]) if row.get("bounding_box.minimum_latitude") else None,
+                                "maximum_latitude": float(row["bounding_box.maximum_latitude"]) if row.get("bounding_box.maximum_latitude") else None,
+                                "minimum_longitude": float(row["bounding_box.minimum_longitude"]) if row.get("bounding_box.minimum_longitude") else None,
+                                "maximum_longitude": float(row["bounding_box.maximum_longitude"]) if row.get("bounding_box.maximum_longitude") else None,
+                            },
                             "downloaded_at": row.get("downloaded_at"),
                             "hash": row.get("hash"),
                             "validation_report": row.get("validation_report"),
