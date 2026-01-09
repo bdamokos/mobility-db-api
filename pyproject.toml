@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mobility-db-api"
-version = "0.5.0"
+version = "0.5.1"
 authors = [
     { name="Bence Damokos" }
 ]
@@ -29,7 +29,7 @@ classifiers = [
     "Programming Language :: Python :: 3",
 ]
 dependencies = [
-    "requests>=2.31.0",
+    "requests>=2.32.4",
     "python-dotenv>=1.0.0",
     "unidecode>=1.3.7",
 ]

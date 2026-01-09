@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2025-01-09
+### Security
+- Bumped minimum `requests` version to 2.32.4 to address CVE-2024-47081 (URL parsing vulnerability that could leak .netrc credentials)
+- Removed .env file from git history
+
 ## [0.5.0] - 2025-01-03
 ### Added
 - Bounding box calculation from stops.txt for direct source GTFS files
