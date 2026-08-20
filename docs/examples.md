@@ -174,4 +174,4 @@ The `ExternalGTFSAPI` class extends `MobilityAPI` to handle GTFS files not in th
 - Versioning support with automatic cleanup of old datasets
 - All base class methods (list, delete, etc.) work with external datasets
 
-For more examples, see [examples/external_gtfs_example.py](examples/external_gtfs_example.py). 
+For more examples, see the [external GTFS example on GitHub](https://github.com/bdamokos/mobility-db-api/blob/main/docs/examples/external_gtfs_example.py).
