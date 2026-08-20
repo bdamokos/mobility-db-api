@@ -9,6 +9,75 @@ import json
 import io
 from typing import Dict, Set
 from unittest.mock import patch
+from urllib.parse import SplitResult, urlsplit
+
+
+MOBILITY_API_ORIGIN = "https://api.mobilitydatabase.org"
+MOBILITY_DATA_CATALOG_ORIGIN = "https://share.mobilitydata.org"
+
+
+def _effective_port(url: SplitResult):
+    if url.port is not None:
+        return url.port
+    return {"http": 80, "https": 443}.get(url.scheme.lower())
+
+
+def _url_matches_origin(url: str, expected_origin: str) -> bool:
+    """Return whether *url* has the expected normalized HTTP(S) origin."""
+    try:
+        parsed = urlsplit(url)
+        expected = urlsplit(expected_origin)
+
+        if parsed.username is not None or parsed.password is not None:
+            return False
+        if parsed.hostname is None or expected.hostname is None:
+            return False
+
+        return (
+            parsed.scheme.lower() == expected.scheme.lower()
+            and parsed.hostname.rstrip(".").lower()
+            == expected.hostname.rstrip(".").lower()
+            and _effective_port(parsed) == _effective_port(expected)
+        )
+    except (TypeError, ValueError):
+        return False
+
+
+@pytest.mark.parametrize(
+    ("url", "expected_origin"),
+    [
+        (
+            "https://api.mobilitydatabase.org/v1/gtfs_feeds",
+            MOBILITY_API_ORIGIN,
+        ),
+        (
+            "HTTPS://API.MOBILITYDATABASE.ORG:443/v1/gtfs_feeds",
+            MOBILITY_API_ORIGIN,
+        ),
+        (
+            "https://share.mobilitydata.org/catalogs-csv",
+            MOBILITY_DATA_CATALOG_ORIGIN,
+        ),
+    ],
+)
+def test_url_matches_origin_accepts_configured_sources(url, expected_origin):
+    assert _url_matches_origin(url, expected_origin)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://api.mobilitydatabase.org.attacker.example/v1/gtfs_feeds",
+        "https://attacker.api.mobilitydatabase.org/v1/gtfs_feeds",
+        "https://api.mobilitydatabase.org@attacker.example/v1/gtfs_feeds",
+        "https://user:password@api.mobilitydatabase.org/v1/gtfs_feeds",
+        "http://api.mobilitydatabase.org/v1/gtfs_feeds",
+        "https://api.mobilitydatabase.org:444/v1/gtfs_feeds",
+        "not a URL containing api.mobilitydatabase.org",
+    ],
+)
+def test_url_matches_origin_rejects_untrusted_origins(url):
+    assert not _url_matches_origin(url, MOBILITY_API_ORIGIN)
 
 @pytest.fixture(scope="module")
 def csv_cache_dir(tmp_path_factory):
@@ -19,7 +88,7 @@ def csv_cache_dir(tmp_path_factory):
     # Force CSV download by simulating API being down
     original_get = requests.get
     def mock_get(*args, **kwargs):
-        if "mobilitydatabase.org" in args[0]:  # API calls
+        if _url_matches_origin(args[0], MOBILITY_API_ORIGIN):  # API calls
             raise requests.exceptions.ConnectionError("API is down")
         return original_get(*args, **kwargs)  # Allow CSV download
     
@@ -208,9 +277,11 @@ def test_api_down_csv_available(monkeypatch, csv_cache_dir):
     try:
         original_get = requests.get
         def mock_get(*args, **kwargs):
-            if "mobilitydatabase.org" in args[0]:  # API calls
+            if _url_matches_origin(args[0], MOBILITY_API_ORIGIN):  # API calls
                 raise requests.exceptions.ConnectionError("API is down")
-            elif "share.mobilitydata.org" in args[0]:  # CSV download
+            elif _url_matches_origin(
+                args[0], MOBILITY_DATA_CATALOG_ORIGIN
+            ):  # CSV download
                 return original_get(*args, **kwargs)
             return original_get(*args, **kwargs)  # Any other requests
         
@@ -295,9 +366,11 @@ test-2,gtfs,,HU,Debrecen,Debrecen,Test Provider 2,,,,,http://test2.com/direct,,,
     def mock_get(*args, **kwargs):
         response = requests.Response()
         
-        if "mobilitydatabase.org" in args[0]:  # API calls
+        if _url_matches_origin(args[0], MOBILITY_API_ORIGIN):  # API calls
             response.status_code = 500
-        elif "share.mobilitydata.org" in args[0]:  # CSV download
+        elif _url_matches_origin(
+            args[0], MOBILITY_DATA_CATALOG_ORIGIN
+        ):  # CSV download
             response.status_code = 200
             response._content = csv_content.encode()
         return response
