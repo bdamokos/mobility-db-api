@@ -316,8 +316,8 @@ def test_api_down_csv_available(monkeypatch, csv_cache_dir):
 def test_no_internet_with_cached_csv(monkeypatch, csv_cache_dir):
     """Test when there's no internet but CSV is already cached"""
     try:
-        # First ensure we have the CSV downloaded
-        api = MobilityAPI(data_dir=str(csv_cache_dir))
+        # Establish the expected providers from the populated CSV cache.
+        api = MobilityAPI(data_dir=str(csv_cache_dir), force_csv_mode=True)
         initial_providers = api.get_providers_by_country("HU")
         assert len(initial_providers) > 0, "Initial CSV download should succeed"
         
@@ -342,9 +342,9 @@ def test_no_internet_with_cached_csv(monkeypatch, csv_cache_dir):
         offline_provider_ids = {p['id'] for p in providers if p['id'].startswith('mdb-')}
         assert len(offline_provider_ids) > 0, "Should find some MDB providers"
         
-        # Check that all providers from CSV (offline) are present in the API results
-        # Note: API might have additional providers not in CSV, which is fine
-        assert offline_provider_ids.issubset(initial_provider_ids), "All CSV providers should be present in API results"
+        assert offline_provider_ids == initial_provider_ids, (
+            "Offline fallback should return the cached CSV providers"
+        )
 
     finally:
         pass  # Cleanup handled by fixture
