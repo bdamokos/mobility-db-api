@@ -9,6 +9,94 @@ import json
 import io
 from typing import Dict, Set
 from unittest.mock import patch
+from urllib.parse import SplitResult, urlsplit
+
+
+MOBILITY_API_ORIGIN = "https://api.mobilitydatabase.org"
+MOBILITY_DATA_CATALOG_ORIGIN = "https://share.mobilitydata.org"
+TEST_CSV_CONTENT = (
+    "mdb_source_id,data_type,provider,location.country_code,urls.direct_download,"
+    "urls.latest,status,features,urls.license,redirect.id\n"
+    "test-1,gtfs,Test Provider,HU,http://test.example/direct,"
+    "http://test.example/latest,,,http://test.example/license,\n"
+)
+
+
+def _effective_port(url: SplitResult):
+    if url.port is not None:
+        return url.port
+    return {"http": 80, "https": 443}.get(url.scheme.lower())
+
+
+def _url_matches_origin(url: str, expected_origin: str) -> bool:
+    """Return whether *url* has the expected normalized HTTP(S) origin."""
+    try:
+        parsed = urlsplit(url)
+        expected = urlsplit(expected_origin)
+
+        if parsed.username is not None or parsed.password is not None:
+            return False
+        if parsed.hostname is None or expected.hostname is None:
+            return False
+
+        return (
+            parsed.scheme.lower() == expected.scheme.lower()
+            and parsed.hostname.rstrip(".").lower()
+            == expected.hostname.rstrip(".").lower()
+            and _effective_port(parsed) == _effective_port(expected)
+        )
+    except (TypeError, ValueError):
+        return False
+
+
+def _catalog_response() -> requests.Response:
+    response = requests.Response()
+    response.status_code = 200
+    response._content = TEST_CSV_CONTENT.encode()
+    return response
+
+
+def _get_catalog_only(url: str, **kwargs) -> requests.Response:
+    if _url_matches_origin(url, MOBILITY_DATA_CATALOG_ORIGIN):
+        return _catalog_response()
+    raise AssertionError(f"Unexpected outbound request: {url}")
+
+
+@pytest.mark.parametrize(
+    ("url", "expected_origin"),
+    [
+        (
+            "https://api.mobilitydatabase.org/v1/gtfs_feeds",
+            MOBILITY_API_ORIGIN,
+        ),
+        (
+            "HTTPS://API.MOBILITYDATABASE.ORG:443/v1/gtfs_feeds",
+            MOBILITY_API_ORIGIN,
+        ),
+        (
+            "https://share.mobilitydata.org/catalogs-csv",
+            MOBILITY_DATA_CATALOG_ORIGIN,
+        ),
+    ],
+)
+def test_url_matches_origin_accepts_configured_sources(url, expected_origin):
+    assert _url_matches_origin(url, expected_origin)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://api.mobilitydatabase.org.attacker.example/v1/gtfs_feeds",
+        "https://attacker.api.mobilitydatabase.org/v1/gtfs_feeds",
+        "https://api.mobilitydatabase.org@attacker.example/v1/gtfs_feeds",
+        "https://user:password@api.mobilitydatabase.org/v1/gtfs_feeds",
+        "http://api.mobilitydatabase.org/v1/gtfs_feeds",
+        "https://api.mobilitydatabase.org:444/v1/gtfs_feeds",
+        "not a URL containing api.mobilitydatabase.org",
+    ],
+)
+def test_url_matches_origin_rejects_untrusted_origins(url):
+    assert not _url_matches_origin(url, MOBILITY_API_ORIGIN)
 
 @pytest.fixture(scope="module")
 def csv_cache_dir(tmp_path_factory):
@@ -17,11 +105,10 @@ def csv_cache_dir(tmp_path_factory):
     test_dir = tmp_path_factory.mktemp("csv_cache")
     
     # Force CSV download by simulating API being down
-    original_get = requests.get
     def mock_get(*args, **kwargs):
-        if "mobilitydatabase.org" in args[0]:  # API calls
+        if _url_matches_origin(args[0], MOBILITY_API_ORIGIN):  # API calls
             raise requests.exceptions.ConnectionError("API is down")
-        return original_get(*args, **kwargs)  # Allow CSV download
+        return _get_catalog_only(args[0], **kwargs)
     
     with patch('requests.get', side_effect=mock_get):
         api = MobilityAPI(data_dir=str(test_dir))
@@ -206,13 +293,14 @@ def test_token_refresh_error():
 def test_api_down_csv_available(monkeypatch, csv_cache_dir):
     """Test when API is down but CSV is still accessible"""
     try:
-        original_get = requests.get
         def mock_get(*args, **kwargs):
-            if "mobilitydatabase.org" in args[0]:  # API calls
+            if _url_matches_origin(args[0], MOBILITY_API_ORIGIN):  # API calls
                 raise requests.exceptions.ConnectionError("API is down")
-            elif "share.mobilitydata.org" in args[0]:  # CSV download
-                return original_get(*args, **kwargs)
-            return original_get(*args, **kwargs)  # Any other requests
+            elif _url_matches_origin(
+                args[0], MOBILITY_DATA_CATALOG_ORIGIN
+            ):  # CSV download
+                return _catalog_response()
+            raise AssertionError(f"Unexpected outbound request: {args[0]}")
         
         monkeypatch.setattr(requests, "get", mock_get)
         api = MobilityAPI(data_dir=str(csv_cache_dir))
@@ -228,8 +316,8 @@ def test_api_down_csv_available(monkeypatch, csv_cache_dir):
 def test_no_internet_with_cached_csv(monkeypatch, csv_cache_dir):
     """Test when there's no internet but CSV is already cached"""
     try:
-        # First ensure we have the CSV downloaded
-        api = MobilityAPI(data_dir=str(csv_cache_dir))
+        # Establish the expected providers from the populated CSV cache.
+        api = MobilityAPI(data_dir=str(csv_cache_dir), force_csv_mode=True)
         initial_providers = api.get_providers_by_country("HU")
         assert len(initial_providers) > 0, "Initial CSV download should succeed"
         
@@ -254,9 +342,9 @@ def test_no_internet_with_cached_csv(monkeypatch, csv_cache_dir):
         offline_provider_ids = {p['id'] for p in providers if p['id'].startswith('mdb-')}
         assert len(offline_provider_ids) > 0, "Should find some MDB providers"
         
-        # Check that all providers from CSV (offline) are present in the API results
-        # Note: API might have additional providers not in CSV, which is fine
-        assert offline_provider_ids.issubset(initial_provider_ids), "All CSV providers should be present in API results"
+        assert offline_provider_ids == initial_provider_ids, (
+            "Offline fallback should return the cached CSV providers"
+        )
 
     finally:
         pass  # Cleanup handled by fixture
@@ -295,9 +383,11 @@ test-2,gtfs,,HU,Debrecen,Debrecen,Test Provider 2,,,,,http://test2.com/direct,,,
     def mock_get(*args, **kwargs):
         response = requests.Response()
         
-        if "mobilitydatabase.org" in args[0]:  # API calls
+        if _url_matches_origin(args[0], MOBILITY_API_ORIGIN):  # API calls
             response.status_code = 500
-        elif "share.mobilitydata.org" in args[0]:  # CSV download
+        elif _url_matches_origin(
+            args[0], MOBILITY_DATA_CATALOG_ORIGIN
+        ):  # CSV download
             response.status_code = 200
             response._content = csv_content.encode()
         return response
@@ -1073,9 +1163,10 @@ def test_directory_cleanup_behavior():
             shutil.rmtree(base_dir)
             print("✓ Test directory cleaned up")
 
-def test_force_csv_mode():
+def test_force_csv_mode(monkeypatch, tmp_path):
     """Test that force_csv_mode always uses CSV catalog"""
-    api = MobilityAPI(force_csv_mode=True)
+    monkeypatch.setattr(requests, "get", _get_catalog_only)
+    api = MobilityAPI(data_dir=tmp_path, force_csv_mode=True)
     
     # Should use CSV catalog even with valid token
     api.refresh_token = "valid_token"  # This would normally trigger API mode
@@ -1088,15 +1179,16 @@ def test_force_csv_mode():
     providers = api.get_providers_by_country("HU")
     assert api._csv_catalog is not None
 
-def test_lazy_csv_initialization():
+def test_lazy_csv_initialization(monkeypatch, tmp_path):
     """Test that CSV catalog is only initialized when needed"""
-    api = MobilityAPI()
+    monkeypatch.setattr(requests, "get", _get_catalog_only)
+    api = MobilityAPI(data_dir=tmp_path / "api")
     
     # CSV catalog should not be initialized yet
     assert api._csv_catalog is None
     
     # Force CSV mode
-    api = MobilityAPI(force_csv_mode=True)
+    api = MobilityAPI(data_dir=tmp_path / "csv", force_csv_mode=True)
     
     # CSV catalog should still not be initialized
     assert api._csv_catalog is None
@@ -1138,7 +1230,8 @@ def test_csv_fallback_with_cached(monkeypatch):
         shutil.rmtree(test_dir)
     
     try:
-        # First, download CSV normally
+        # First, populate the cache with a deterministic catalog response
+        monkeypatch.setattr(requests, "get", _get_catalog_only)
         api = MobilityAPI(data_dir=test_dir, force_csv_mode=True)
         initial_providers = api.get_providers_by_country("HU")
         assert len(initial_providers) > 0, "Should get providers in initial download"
