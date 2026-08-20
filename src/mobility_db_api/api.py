@@ -267,7 +267,7 @@ class MobilityAPI:
         except IOError as e:
             self.logger.error(f"Error saving metadata: {str(e)}")
 
-    def reload_metadata(self, force: bool = False):
+    def reload_metadata(self, force: bool = False) -> bool:
         """
         Reload metadata from file if it has been modified or if forced.
 
@@ -397,8 +397,9 @@ class MobilityAPI:
             >>> info = api.get_provider_by_id("mdb-123")
             >>> if info:
             ...     print(f"Provider: {info['provider']}")
-            ...     if 'downloaded_dataset' in info:
-            ...         print(f"Downloaded: {info['downloaded_dataset']['download_path']}")
+            ...     downloaded = info.get("downloaded_dataset")
+            ...     if downloaded:
+            ...         print(f"Downloaded: {downloaded.get('download_path')}")
         """
         return self.get_provider_info(provider_id=provider_id)
 
@@ -829,7 +830,7 @@ class MobilityAPI:
                     min_lon = bounding_box.get("minimum_longitude")
                     max_lon = bounding_box.get("maximum_longitude")
                     self.logger.info(
-                        f"Using bounding box from API/CSV: ({min_lat}, {min_lon}) to ({max_lat}, {max_lon})"
+                        "Using bounding box supplied by API/CSV"
                     )
 
             # Calculate bounding box from stops.txt if needed or forced

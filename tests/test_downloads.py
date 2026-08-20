@@ -284,6 +284,70 @@ def test_metadata_tracking(monkeypatch):
         if data_dir.exists():
             shutil.rmtree(data_dir)
 
+
+def test_api_bounding_box_values_are_not_logged(monkeypatch, tmp_path):
+    """Keep public feed bounds in metadata without copying them into logs."""
+    provider_url = "https://api.mobilitydatabase.org/v1/gtfs_feeds/test-provider"
+    dataset_url = "https://downloads.example.test/dataset.zip"
+    bounding_box = {
+        "minimum_latitude": 47.123456,
+        "maximum_latitude": 47.654321,
+        "minimum_longitude": 19.123456,
+        "maximum_longitude": 19.654321,
+    }
+
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w") as zip_file:
+        zip_file.writestr("stops.txt", "stop_id,stop_name\n1,Test Stop")
+    zip_content = zip_buffer.getvalue()
+
+    def mock_get(url, **kwargs):
+        response = requests.Response()
+        response.status_code = 200
+        if url == provider_url:
+            response._content = json.dumps(
+                {
+                    "provider": "Test Provider",
+                    "latest_dataset": {
+                        "id": "test-dataset",
+                        "hosted_url": dataset_url,
+                        "bounding_box": bounding_box,
+                    },
+                }
+            ).encode()
+        elif url == dataset_url:
+            response._content = zip_content
+        else:
+            raise AssertionError(f"Unexpected outbound request: {url}")
+        return response
+
+    def mock_post(url, **kwargs):
+        assert url == "https://api.mobilitydatabase.org/v1/tokens"
+        response = requests.Response()
+        response.status_code = 200
+        response._content = json.dumps({"access_token": "mock_token"}).encode()
+        return response
+
+    monkeypatch.setattr(requests, "get", mock_get)
+    monkeypatch.setattr(requests, "post", mock_post)
+    api = MobilityAPI(data_dir=tmp_path, refresh_token="mock_refresh_token")
+
+    with patch.object(api.logger, "info") as log_info:
+        dataset_path = api.download_latest_dataset("test-provider")
+
+    assert dataset_path is not None
+    metadata = api.list_downloaded_datasets()[0]
+    assert metadata.minimum_latitude == bounding_box["minimum_latitude"]
+    assert metadata.maximum_latitude == bounding_box["maximum_latitude"]
+    assert metadata.minimum_longitude == bounding_box["minimum_longitude"]
+    assert metadata.maximum_longitude == bounding_box["maximum_longitude"]
+
+    messages = [str(call.args[0]) for call in log_info.call_args_list]
+    assert "Using bounding box supplied by API/CSV" in messages
+    for value in bounding_box.values():
+        assert str(value) not in "\n".join(messages)
+
+
 def test_token_refresh_error():
     """Test handling of token refresh errors"""
     api = MobilityAPI(refresh_token="invalid_token")
