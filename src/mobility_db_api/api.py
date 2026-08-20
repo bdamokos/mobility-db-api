@@ -829,7 +829,7 @@ class MobilityAPI:
                     min_lon = bounding_box.get("minimum_longitude")
                     max_lon = bounding_box.get("maximum_longitude")
                     self.logger.info(
-                        f"Using bounding box from API/CSV: ({min_lat}, {min_lon}) to ({max_lat}, {max_lon})"
+                        "Using bounding box supplied by API/CSV"
                     )
 
             # Calculate bounding box from stops.txt if needed or forced
