@@ -451,19 +451,26 @@ def test_get_provider_info_no_args_explicit():
     assert isinstance(providers, list)
     assert len(providers) == 0
 
-def test_get_provider_info_empty_args():
+def test_get_provider_info_empty_args(test_csv_content, tmp_path):
     """Test calling get_provider_info with empty strings."""
-    api = MobilityAPI()
-    
-    # Empty provider_id should return None
-    assert api.get_provider_info(provider_id="") is None
-    
-    # Empty country_code should return empty list
-    providers = api.get_provider_info(country_code="")
-    assert isinstance(providers, list)
-    assert len(providers) == 0
-    
-    # Empty name should return all providers (since empty string matches all names)
-    providers = api.get_provider_info(name="")
-    assert isinstance(providers, list)
-    assert len(providers) > 0  # Should return all active GTFS providers 
+    with responses.RequestsMock() as rsps:
+        rsps.add(
+            responses.GET,
+            CSVCatalog.CATALOG_URL,
+            body=test_csv_content,
+            status=200,
+        )
+        api = MobilityAPI(data_dir=tmp_path, force_csv_mode=True)
+
+        # Empty provider_id should return None
+        assert api.get_provider_info(provider_id="") is None
+
+        # Empty country_code should return empty list
+        providers = api.get_provider_info(country_code="")
+        assert isinstance(providers, list)
+        assert len(providers) == 0
+
+        # Empty name should return all providers (since empty string matches all names)
+        providers = api.get_provider_info(name="")
+        assert isinstance(providers, list)
+        assert len(providers) > 0  # Should return all active GTFS providers
