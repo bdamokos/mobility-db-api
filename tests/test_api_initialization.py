@@ -13,7 +13,7 @@ import io
 
 def create_api_and_write_marker(data_dir: str, marker_value: str):
     """Helper function for multiprocessing test"""
-    api = MobilityAPI(data_dir=data_dir)
+    api = MobilityAPI(data_dir=data_dir, force_csv_mode=True)
     # Write a marker file to prove this process created its own instance
     marker_path = Path(data_dir) / f"process_marker_{marker_value}.txt"
     with open(marker_path, "w") as f:
@@ -24,7 +24,7 @@ def create_api_and_write_marker(data_dir: str, marker_value: str):
 def write_metadata_process(data_dir: str, dataset_id: str, delay: float = 0):
     """Helper function to write metadata from a separate process"""
     time.sleep(delay)  # Optional delay to control timing
-    api = MobilityAPI(data_dir=data_dir)
+    api = MobilityAPI(data_dir=data_dir, force_csv_mode=True)
     
     # Create test metadata
     download_path = Path(data_dir) / f"test_dataset_{dataset_id}"
@@ -52,7 +52,7 @@ def write_metadata_process(data_dir: str, dataset_id: str, delay: float = 0):
 
 def read_metadata_process(data_dir: str):
     """Helper function to read metadata from a separate process"""
-    api = MobilityAPI(data_dir=data_dir)
+    api = MobilityAPI(data_dir=data_dir, force_csv_mode=True)
     api.reload_metadata(force=True)
 
 @pytest.fixture

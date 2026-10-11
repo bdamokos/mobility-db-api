@@ -16,6 +16,14 @@ A Python client for downloading GTFS files through the [Mobility Database](https
 - Thread-safe and process-safe operations
 - Automatic token refresh and error handling
 
+Without an API token, the client uses MobilityData's current
+[V2 CSV catalog](https://files.mobilitydatabase.org/feeds_v2.csv). CSV searches
+support full feed IDs such as `mdb-123`, `tld-5862`, and `tdg-81995`;
+numeric IDs such as `123` also resolve to their `mdb-` feed. Inactive,
+deprecated, redirected, and non-GTFS feeds are excluded.
+The V2 catalog has a separate cache, so first use after upgrading requires an
+internet connection.
+
 ## Installation
 
 ```bash

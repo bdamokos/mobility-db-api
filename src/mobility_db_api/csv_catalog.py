@@ -6,13 +6,12 @@ from pathlib import Path
 from typing import Optional, List, Dict
 from datetime import datetime
 import tempfile
-import hashlib
 
 
 class CSVCatalog:
     """Handler for the Mobility Database CSV catalog."""
 
-    CATALOG_URL = "https://share.mobilitydata.org/catalogs-csv"
+    CATALOG_URL = "https://files.mobilitydatabase.org/feeds_v2.csv"
 
     def __init__(self, cache_dir: Optional[str] = None):
         """Initialize the CSV catalog handler.
@@ -23,7 +22,8 @@ class CSVCatalog:
         """
         self.cache_dir = Path(cache_dir) if cache_dir else Path(tempfile.gettempdir())
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        self.csv_path = self.cache_dir / "mobility_catalog.csv"
+        # Keep legacy caches from masking the current catalog after an upgrade.
+        self.csv_path = self.cache_dir / "mobility_catalog_v2.csv"
         self._providers: Optional[List[Dict]] = None
 
     def _download_csv(self, force: bool = False) -> bool:
@@ -73,19 +73,39 @@ class CSVCatalog:
                     if row.get("redirect.id"):
                         continue
 
+                    # V2 IDs already include their source prefix (mdb-, tld-, tdg-).
+                    # Continue accepting legacy CSVs saved by callers.
+                    provider_id = row.get("id") or f"mdb-{row.get('mdb_source_id', '')}"
+                    bounding_box = {}
+                    for key in (
+                        "minimum_latitude",
+                        "maximum_latitude",
+                        "minimum_longitude",
+                        "maximum_longitude",
+                    ):
+                        value = row.get(
+                            f"location.bounding_box.{key}",
+                            row.get(f"bounding_box.{key}"),
+                        )
+                        bounding_box[key] = float(value) if value else None
+
                     provider = {
-                        "id": f"mdb-{row.get('mdb_source_id', '')}",
+                        "id": provider_id,
                         "data_type": row.get("data_type", "gtfs"),
                         "status": row.get("status", ""),
                         "created_at": row.get("created_at", ""),
-                        "external_ids": [
-                            {
-                                "external_id": row.get("mdb_source_id", ""),
-                                "source": "mdb",
-                            }
-                        ],
+                        "external_ids": (
+                            [
+                                {
+                                    "external_id": row.get("mdb_source_id", ""),
+                                    "source": "mdb",
+                                }
+                            ]
+                            if row.get("mdb_source_id")
+                            else []
+                        ),
                         "provider": row.get("provider", "Unknown Provider"),
-                        "feed_name": row.get("feed_name", ""),
+                        "feed_name": row.get("name", row.get("feed_name", "")),
                         "note": row.get("note", ""),
                         "feed_contact_email": row.get("feed_contact_email", ""),
                         "source_info": {
@@ -94,7 +114,8 @@ class CSVCatalog:
                                 row.get("urls.authentication_type", "0") or "0"
                             ),
                             "authentication_info_url": row.get(
-                                "urls.authentication_info", ""
+                                "urls.authentication_info_url",
+                                row.get("urls.authentication_info", ""),
                             ),
                             "api_key_parameter_name": row.get(
                                 "urls.api_key_parameter_name", ""
@@ -112,14 +133,9 @@ class CSVCatalog:
                             }
                         ],
                         "latest_dataset": {
-                            "id": f"mdb-{row.get('mdb_source_id', '')}-{datetime.now().strftime('%Y%m%d%H%M')}",
+                            "id": f"{provider_id}-{datetime.now().strftime('%Y%m%d%H%M')}",
                             "hosted_url": row.get("urls.latest", ""),
-                            "bounding_box": {
-                                "minimum_latitude": float(row["bounding_box.minimum_latitude"]) if row.get("bounding_box.minimum_latitude") else None,
-                                "maximum_latitude": float(row["bounding_box.maximum_latitude"]) if row.get("bounding_box.maximum_latitude") else None,
-                                "minimum_longitude": float(row["bounding_box.minimum_longitude"]) if row.get("bounding_box.minimum_longitude") else None,
-                                "maximum_longitude": float(row["bounding_box.maximum_longitude"]) if row.get("bounding_box.maximum_longitude") else None,
-                            },
+                            "bounding_box": bounding_box,
                             "downloaded_at": row.get("downloaded_at"),
                             "hash": row.get("hash"),
                             "validation_report": row.get("validation_report"),

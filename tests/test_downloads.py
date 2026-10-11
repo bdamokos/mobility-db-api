@@ -13,7 +13,7 @@ from urllib.parse import SplitResult, urlsplit
 
 
 MOBILITY_API_ORIGIN = "https://api.mobilitydatabase.org"
-MOBILITY_DATA_CATALOG_ORIGIN = "https://share.mobilitydata.org"
+MOBILITY_DATA_CATALOG_ORIGIN = "https://files.mobilitydatabase.org"
 TEST_CSV_CONTENT = (
     "mdb_source_id,data_type,provider,location.country_code,urls.direct_download,"
     "urls.latest,status,features,urls.license,redirect.id\n"
@@ -74,7 +74,7 @@ def _get_catalog_only(url: str, **kwargs) -> requests.Response:
             MOBILITY_API_ORIGIN,
         ),
         (
-            "https://share.mobilitydata.org/catalogs-csv",
+            "https://files.mobilitydatabase.org/feeds_v2.csv",
             MOBILITY_DATA_CATALOG_ORIGIN,
         ),
     ],
