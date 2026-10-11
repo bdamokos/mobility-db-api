@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-11
+### Changed
+- CSV fallback now downloads the current MobilityData V2 catalog from `https://files.mobilitydatabase.org/feeds_v2.csv` instead of the retired legacy source.
+- A separate V2 cache prevents old catalog files from hiding the update. First use after upgrading requires an internet connection; subsequent use can read the cached catalog offline.
+
+### Fixed
+- Preserve full V2 feed IDs, including `mdb-`, `tld-`, and `tdg-` prefixes, for searches and downloads. Numeric MDB lookups and legacy CSV parsing remain supported.
+- Read feed names and bounding boxes from the current CSV schema.
+
+### Developer Changes
+- Isolate unit-test HTTP calls and storage from real API credentials and changing public feeds.
+- Add regression coverage for V2 search, ID lookup, downloads, metadata persistence, and cache migration.
+
 ## [0.5.1] - 2025-01-09
 ### Security
 - Bumped minimum `requests` version to 2.32.4 to address CVE-2024-47081 (URL parsing vulnerability that could leak .netrc credentials)
