@@ -87,7 +87,10 @@ class CSVCatalog:
                             f"location.bounding_box.{key}",
                             row.get(f"bounding_box.{key}"),
                         )
-                        bounding_box[key] = float(value) if value else None
+                        try:
+                            bounding_box[key] = float(value) if value else None
+                        except ValueError:
+                            bounding_box[key] = None
 
                     provider = {
                         "id": provider_id,

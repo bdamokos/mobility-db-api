@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Preserve full V2 feed IDs, including `mdb-`, `tld-`, and `tdg-` prefixes, for searches and downloads. Numeric MDB lookups and legacy CSV parsing remain supported.
 - Read feed names and bounding boxes from the current CSV schema.
+- Treat malformed catalog coordinates as missing without losing feed rows or blocking discovery.
 
 ### Developer Changes
 - Isolate unit-test HTTP calls and storage from real API credentials and changing public feeds.

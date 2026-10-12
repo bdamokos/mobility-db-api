@@ -14,6 +14,7 @@ from mobility_db_api.csv_catalog import CSVCatalog
 
 @pytest.fixture
 def v2_csv():
+    """Build a V2 catalog with active feeds and excluded provider states."""
     output = io.StringIO()
     fields = [
         "id",
@@ -74,6 +75,7 @@ def v2_csv():
 
 @responses.activate
 def test_v2_search_ids_and_metadata(tmp_path, v2_csv):
+    """Preserve V2 provider IDs and map current metadata fields."""
     responses.get(CSVCatalog.CATALOG_URL, body=v2_csv)
     api = MobilityAPI(data_dir=tmp_path, force_csv_mode=True)
 
@@ -102,6 +104,7 @@ def test_v2_search_ids_and_metadata(tmp_path, v2_csv):
 
 @responses.activate
 def test_default_client_falls_back_to_v2_without_a_token(monkeypatch, tmp_path, v2_csv):
+    """Use the V2 catalog when no API token is configured."""
     monkeypatch.delenv("MOBILITY_API_REFRESH_TOKEN")
     responses.get(CSVCatalog.CATALOG_URL, body=v2_csv)
     api = MobilityAPI(data_dir=tmp_path)
@@ -115,6 +118,7 @@ def test_default_client_falls_back_to_v2_without_a_token(monkeypatch, tmp_path, 
 @responses.activate
 @pytest.mark.parametrize("use_direct_source", [False, True])
 def test_v2_download_and_persist_metadata(tmp_path, v2_csv, use_direct_source):
+    """Download either source and retain metadata across client reloads."""
     responses.get(CSVCatalog.CATALOG_URL, body=v2_csv)
     archive = io.BytesIO()
     with zipfile.ZipFile(archive, "w") as zf:
@@ -143,6 +147,7 @@ def test_v2_download_and_persist_metadata(tmp_path, v2_csv, use_direct_source):
 
 @responses.activate
 def test_v2_cache_does_not_reuse_legacy_catalog(tmp_path, v2_csv):
+    """Migrate to a separate V2 cache and reuse it offline."""
     legacy_path = tmp_path / "mobility_catalog.csv"
     legacy_csv = "mdb_source_id,data_type,provider\n999,gtfs,Old Provider\n"
     legacy_path.write_text(legacy_csv)
@@ -158,3 +163,54 @@ def test_v2_cache_does_not_reuse_legacy_catalog(tmp_path, v2_csv):
     offline = CSVCatalog(cache_dir=tmp_path)
     assert offline.get_provider_info("tdg-81995") is not None
     assert not responses.calls
+
+
+@pytest.mark.parametrize("schema", ["v2", "legacy"])
+@pytest.mark.parametrize(
+    "invalid_key",
+    [
+        "minimum_latitude",
+        "maximum_latitude",
+        "minimum_longitude",
+        "maximum_longitude",
+    ],
+)
+def test_invalid_coordinates_preserve_catalog_rows(tmp_path, schema, invalid_key):
+    """Keep both feed rows when one coordinate is nonnumeric or empty."""
+    id_field = "id" if schema == "v2" else "mdb_source_id"
+    prefix = "location.bounding_box." if schema == "v2" else "bounding_box."
+    coordinates = {
+        "minimum_latitude": "49.5",
+        "maximum_latitude": "51.5",
+        "minimum_longitude": "2.5",
+        "maximum_longitude": "6.5",
+    }
+    fields = [id_field, "data_type", "status", "provider"] + [
+        prefix + key for key in coordinates
+    ]
+    catalog = CSVCatalog(cache_dir=tmp_path)
+    with catalog.csv_path.open("w", newline="") as stream:
+        writer = csv.DictWriter(stream, fieldnames=fields)
+        writer.writeheader()
+        for number in (123, 456):
+            row = {
+                id_field: f"mdb-{number}" if schema == "v2" else str(number),
+                "data_type": "gtfs",
+                "status": "active",
+                "provider": "Test Provider",
+                **{prefix + key: value for key, value in coordinates.items()},
+            }
+            if number == 123:
+                row[prefix + invalid_key] = "not-a-number"
+                empty_key = next(key for key in coordinates if key != invalid_key)
+                row[prefix + empty_key] = ""
+            writer.writerow(row)
+
+    providers = catalog.get_providers()
+    assert [provider["id"] for provider in providers] == ["mdb-123", "mdb-456"]
+    expected = {key: float(value) for key, value in coordinates.items()}
+    assert providers[1]["latest_dataset"]["bounding_box"] == expected
+    expected[invalid_key] = None
+    expected[empty_key] = None
+    assert providers[0]["latest_dataset"]["bounding_box"] == expected
+    assert catalog.get_provider_info("mdb-123") == providers[0]

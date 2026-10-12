@@ -56,6 +56,7 @@ def isolated_http_and_storage(monkeypatch, tmp_path):
         archives[url] = archive.getvalue()
 
     def token_response(request):
+        """Return dummy credentials or the expected invalid-token response."""
         token = json.loads(request.body)["refresh_token"]
         if token == "invalid_token":
             return 401, {}, "{}"
@@ -63,11 +64,13 @@ def isolated_http_and_storage(monkeypatch, tmp_path):
         return 200, {}, json.dumps({"access_token": "mock_token"})
 
     def feed_response(request):
+        """Look up a fixture feed by its exact API path ID."""
         provider_id = request.path_url.rsplit("/", 1)[-1]
         provider = providers.get(provider_id)
         return (200, {}, json.dumps(provider)) if provider else (404, {}, "{}")
 
     def search_response(request):
+        """Filter fixture feeds by the requested country or provider name."""
         params = parse_qs(urlsplit(request.url).query)
         matches = list(providers.values())
         if "country_code" in params:
