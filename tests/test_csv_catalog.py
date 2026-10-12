@@ -36,7 +36,7 @@ def catalog(test_dir):
 def test_init(catalog, test_dir):
     """Test CSVCatalog initialization."""
     assert catalog.cache_dir == Path(test_dir)
-    assert catalog.csv_path == Path(test_dir) / "mobility_catalog.csv"
+    assert catalog.csv_path == Path(test_dir) / "mobility_catalog_v2.csv"
     assert catalog._providers is None
 
 @responses.activate
