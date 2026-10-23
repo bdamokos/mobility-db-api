@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- Require `certifi>=2026.10.19` so default HTTPS verification excludes the compromised emSign ECC Root CA - G3 trust root ([GHSA-6q48-6c7w-9gw2](https://github.com/certifi/python-certifi/security/advisories/GHSA-6q48-6c7w-9gw2)).
+
 ## [0.6.0] - 2026-10-11
 ### Changed
 - CSV fallback now downloads the current MobilityData V2 catalog from `https://files.mobilitydatabase.org/feeds_v2.csv` instead of the retired legacy source.
